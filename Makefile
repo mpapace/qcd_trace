@@ -54,18 +54,18 @@ endif
 COMMON_COMPILE_FLAGS += -DTM_COARSEST
 
 # LAPACK is needed for coarsest-level improvements
-#LAPACK_DIR = dependencies/lapack-3.9.0
-#LAPACKE_DIR = $(LAPACK_DIR)/LAPACKE
-#LAPACKE_INCLUDE = $(LAPACKE_DIR)/include
-#BLASLIB      = $(LAPACK_DIR)/librefblas.a
-#LAPACKLIB    = $(LAPACK_DIR)/liblapack.a
-#LAPACKELIB   = $(LAPACK_DIR)/liblapacke.a
-#LAPACK_LIBRARIES = $(LAPACKELIB) $(LAPACKLIB) $(BLASLIB)
-#COMMON_COMPILE_FLAGS += -I$(LAPACKE_INCLUDE)
+LAPACK_DIR = dependencies/lapack-3.9.0
+LAPACKE_DIR = $(LAPACK_DIR)/LAPACKE
+LAPACKE_INCLUDE = $(LAPACKE_DIR)/include
+BLASLIB      = $(LAPACK_DIR)/librefblas.a
+LAPACKLIB    = $(LAPACK_DIR)/liblapack.a
+LAPACKELIB   = $(LAPACK_DIR)/liblapacke.a
+LAPACK_LIBRARIES = $(LAPACKELIB) $(LAPACKLIB) $(BLASLIB)
+COMMON_COMPILE_FLAGS += -I$(LAPACKE_INCLUDE)
 
 # coarsest-level improvements
-#COMMON_COMPILE_FLAGS += -DGCRODR
-#COMMON_COMPILE_FLAGS += -DPOLYPREC
+COMMON_COMPILE_FLAGS += -DGCRODR
+COMMON_COMPILE_FLAGS += -DPOLYPREC
 
 ## Defines
 COMMON_COMPILE_FLAGS += -DCUDA_ERROR_CHECK -DPROFILING $(NVTX_DISABLE) #-DGPU2GPU_COMMS_VIA_CPUS
@@ -105,7 +105,7 @@ endif
 
 # Extra Warnings that developers should fix but don't.
 # This is a C only flag as implicit function declaration is forbidden in C++ anyways.
-COMPILE_FLAGS += -Wall -Werror-implicit-function-declaration
+COMPILE_FLAGS += -Wall -Werror-implicit-function-declaration -DTESTVECTOR_ANALYSIS
 LINK_FLAGS = -lgomp -lm -ldl
 
 #LINK_FLAGS += -DHALF_PREC_STORAGE

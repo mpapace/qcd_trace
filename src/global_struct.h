@@ -37,8 +37,20 @@ typedef struct global_struct
         *post_smooth_iter, *block_iter, *setup_iter, *ncycle,
         method, odd_even, anti_pbc, rhs, propagator_coords[4],
         interpolation, randomize, *num_eig_vect, num_coarse_eig_vect, kcycle, mixed_precision,
-        restart, max_restart, kcycle_restart, kcycle_max_restart, coarse_iter, coarse_restart;
+        restart, max_restart, kcycle_restart, kcycle_max_restart, coarse_iter, coarse_restart,
+        *trace_max_iters, *trace_min_iters, time_slice, trace_op_type, time_slice_inner_connected;
     double tol, coarse_tol, kcycle_tol, csw, rho, *relax_fac;
+
+    // Improved setup 1: yes, 0:no
+    int default_setup;
+    // Eigentol in improved Setup
+    double eigen_tol;
+    // test vectors: 0: from D,  1; from Q
+    int interpolation_vectors;
+    // store the test vectors 1: yes, 0:no
+    int write_tv;
+    // number of stored test vectors
+    int num_stored_tv;
 
     // profiling, analysis, output
     int coarse_iter_count, iter_count, iterator, print, conf_flag, setup_flag, in_setup;
@@ -119,6 +131,34 @@ typedef struct global_struct
     double avg_b1;
     double avg_b2;
     double avg_crst;
+
+
+    int probing; //0 - no probing, 1 - classical, 2 - hierarchical
+    int probing_dimension; // 4D or 3D coloring
+    int coloring_distance; // for classical
+    int colored_grids; //grids to be colored in the multilevel decomposition from fine to coarse
+    int *k; // for hierarchical
+    int *anisotropic;
+
+    int **colors; //colors of the lattice
+    int **prev_hp_colors;
+    int **local_colors; //colors of every MPI process
+    int *num_colors; //number of colors at every level
+    int coloring_count;
+    
+    int *dilution;
+    int dilution_count;
+
+    int sigma[4];
+
+    int *n_had;
+    int **global_k;
+
+    int gamma_idx;
+
+    double *variances; //variance of the estimator at every level
+    double **var_pc; //variance per color
+
 } global_struct;
 
 extern global_struct g;

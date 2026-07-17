@@ -266,7 +266,50 @@ typedef struct
     int syst_size;
     vector_PRECISION *Va, *Za;
 #endif
+
+    int print_iters;
 } gmres_PRECISION_struct;
+
+typedef struct {
+    vector_PRECISION mlmc_b1;
+    vector_PRECISION mlmc_b2;
+    vector_PRECISION mlmc_testing;
+
+    // to store the Rademacher vector    
+    vector_PRECISION rademacher_vector;
+    vector_PRECISION rademacher_buffer;
+    vector_PRECISION hadamard_vector;
+    vector_PRECISION probing_vector;
+
+    complex_PRECISION rt;
+    complex_PRECISION trace;
+       
+    int *max_iters, *min_iters;
+
+    double trace_tol;
+    double *tol_per_level;
+    
+    // enforcing this at the coarsest level for ~10^-1 solves
+    int tmp_length;
+
+    //// FIXME : make this int a sort of input parameter ?
+    //int low_tol_restart_length;
+    
+    // this functional returns the estimate needed by Hutchinson at each iteration
+    complex_PRECISION (*hutch_compute_one_sample)();
+
+		// pointer to the finest level
+    struct level_struct *finest_level;
+    
+    // pointers to levels i and j for the C_{i,j} operators
+    struct level_struct *lx_i;
+    struct level_struct *lx_j;
+
+    // indicies for the right or left operator
+    int r_op, l_op; 
+
+  } hutchinson_PRECISION_struct;
+
 
 typedef struct
 {

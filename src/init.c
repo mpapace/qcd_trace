@@ -441,6 +441,22 @@ void method_init( int *argc, char ***argv, level_struct *l ) {
   MALLOC( g.odd_even_table, int, l->num_inner_lattice_sites );
   define_odd_even_table( l );
 
+  if(g.my_rank==0){
+    g.var_pc = (double**)malloc(g.num_levels * sizeof(double*));
+
+    for(int level = 0; level < g.num_levels; level++){
+      g.var_pc[level] = NULL;
+      MALLOC(g.var_pc[level], double, g.trace_max_iters[level]);
+    }
+
+    for(int level = 0; level < g.num_levels; level++){
+      for(int idx = 0; idx < g.trace_max_iters[level]; idx++){
+        g.var_pc[level][idx] = 0.0;
+      }
+    }
+  }
+
+
 #ifdef CUDA_OPT
 
   // globally-setting some GPU device properties
@@ -532,14 +548,43 @@ void method_init( int *argc, char ***argv, level_struct *l ) {
 void method_finalize( level_struct *l ) {
   
   int ls = MAX(g.num_desired_levels,2);
+
+  if(g.probing == 1){
+    int num_processes;
+    MPI_Comm_size(MPI_COMM_WORLD, &num_processes);
+    for(int level = 0; level < g.num_levels; level++){
+        int T = g.global_lattice[level][0];
+        int Z = g.global_lattice[level][1];
+        int Y = g.global_lattice[level][2];
+        int X = g.global_lattice[level][3];
+        int size = T * Z * Y * X;
+
+        int local_size = size/num_processes;
+        FREE(g.local_colors[level], int*, local_size);
+    }
+  }
+
+
+  if(g.my_rank==0){
+    for(int level = 0; level < g.num_levels; level++)
+      FREE(g.var_pc[level], double*, g.trace_max_iters[level]);
+  }
+
+  if(g.trace_op_type == 7)
+     FREE(g.variances, double, g.num_levels*g.num_levels);
+  else
+     FREE(g.variances, double, g.num_levels);
+
   
   operator_double_free( &(g.op_double), _ORDINARY, l );
   FREE( g.odd_even_table, int, l->num_inner_lattice_sites );
   FREE( g.global_lattice[0], int, 4*ls );
   FREE( g.local_lattice[0], int, 4*ls );
   FREE( g.block_lattice[0], int, 4*ls );
+  FREE( g.global_k[0], int, 4*ls );
   FREE( g.global_lattice, int*, ls );
   FREE( g.local_lattice, int*, ls );
+  FREE( g.global_k, int*, ls );
   FREE( g.block_lattice, int*, ls );
   FREE( g.post_smooth_iter, int, ls );
   FREE( g.ncycle, int, ls );
@@ -547,6 +592,16 @@ void method_finalize( level_struct *l ) {
   FREE( g.block_iter, int, ls );
   FREE( g.setup_iter, int, ls );
   FREE( g.num_eig_vect, int, ls );
+
+  FREE( g.trace_max_iters, int, ls );
+  FREE( g.trace_min_iters, int, ls );
+
+  FREE( g.k, int, ls );
+  FREE( g.num_colors, int, ls );
+  FREE( g.n_had, int, ls );
+  FREE( g.anisotropic, int, ls );
+  FREE( g.dilution, int, ls );
+
 #ifdef CUDA_OPT
   FREE( g.CUDA_threads_per_CUDA_block_type1, int, ls );
   FREE( g.CUDA_threads_per_lattice_site_type1, int, ls );
@@ -730,6 +785,23 @@ void read_global_info( FILE *in ) {
   void *save_pt;
   int match;
 
+  //Setting the probing parameter_update
+  save_pt = &(g.probing); g.probing = 0;
+  read_parameter( &save_pt, "probing selection:", "%d", 1, in, _DEFAULT_SET);
+
+  if(g.probing != 0){
+    //Setting the coloring distance
+    save_pt = &(g.coloring_distance); g.coloring_distance = 0;
+    read_parameter( &save_pt, "coloring distance:", "%d", 1, in, _DEFAULT_SET);
+
+    save_pt = &(g.colored_grids); g.colored_grids = 1;
+    read_parameter( &save_pt, "colored grids:", "%d", 1, in, _DEFAULT_SET);
+
+  }
+
+  save_pt = &(g.gamma_idx); g.gamma_idx = 5;
+  read_parameter( &save_pt, "gamma index:", "%d", 1, in, _DEFAULT_SET);
+
   // Note: There is actually no default set for the three following values
   // Though, when using the code as a library, no configuration paths are required.
   save_pt = &(g.in);
@@ -762,7 +834,19 @@ void read_global_info( FILE *in ) {
   g.num_desired_levels = g.num_levels;
   save_pt = &(g.anti_pbc); g.anti_pbc = 0;
   read_parameter( &save_pt, "antiperiodic boundary conditions:", "%d", 1, in, _DEFAULT_SET );
-  
+ 
+  g.bc = g.anti_pbc ? 2 : 1;
+  save_pt = &(g.bc);
+  if ( read_parameter( &save_pt, "boundary condition type:", "%d", 1, in, _DEFAULT_SET ) ) {
+    if ( g.bc == 2 )
+      g.anti_pbc = 1;
+    else
+      g.anti_pbc = 0;
+
+    if ( g.bc < 0 || g.bc > 3 )
+      error0("invalid boundary condition type: %d\n", g.bc);
+  }
+
   save_pt = &(g.num_openmp_processes); g.num_openmp_processes = 1;
   read_parameter( &save_pt, "number of openmp threads:", "%d", 1, in, _DEFAULT_SET );
 }
@@ -932,6 +1016,72 @@ void read_geometry_data( FILE *in, int ls ) {
     if ( i==0 ) g.setup_iter[i] = 6;
     else if ( i==1 ) g.setup_iter[i] = 3;
     else if ( i>1 ) g.setup_iter[i] = 2;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+    
+    // do this only for the finest level, as this is a global quantity
+    if ( i==0 ) {
+      sprintf(inputstr, "d%d trace op type:", i);
+
+      // trace_op_type
+      g.trace_op_type = 1;
+      save_pt = &(g.trace_op_type);
+      read_parameter(&save_pt, inputstr, "%d", 1, in, _DEFAULT_SET);
+
+      // default setup
+      g.default_setup = 1;
+      save_pt = &(g.default_setup);
+      read_parameter(&save_pt, "default setup:", "%d", 1, in, _DEFAULT_SET);
+
+      // eigen_tol
+      g.eigen_tol = 5E-1;
+      save_pt = &(g.eigen_tol);
+      read_parameter(&save_pt, "eigenres tol:", "%le", 1, in, _DEFAULT_SET);
+
+      // interpolation_vectors
+      g.interpolation_vectors = 0;
+      save_pt = &(g.interpolation_vectors);
+      read_parameter(&save_pt, "interpolation vectors:", "%d", 1, in, _DEFAULT_SET);
+
+      // write test vectors
+      g.write_tv = 0;
+      save_pt = &(g.write_tv);
+      read_parameter(&save_pt, "store test vectors:", "%d", 1, in, _DEFAULT_SET);
+      
+      g.num_stored_tv = g.num_eig_vect[i];
+
+      if(g.write_tv == 1){
+        save_pt = &(g.tv_io_file_name);
+        read_parameter( &save_pt, "test vector io file name:", "%s", 1, in, _NO_DEFAULT_SET );
+        
+        save_pt = &(g.num_stored_tv);
+        read_parameter(&save_pt, "number store test vectors:", "%d", 1, in, _DEFAULT_SET);
+      }
+  }
+
+
+
+    sprintf( inputstr, "d%d trace max iters:", i );
+    save_pt = &(g.trace_max_iters[i]); g.trace_max_iters[i] = 100;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
+    sprintf( inputstr, "d%d trace min iters:", i );
+    save_pt = &(g.trace_min_iters[i]); g.trace_min_iters[i] = 100;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
+    sprintf( inputstr, "d%d hierarchy step:", i );
+    save_pt = &(g.k[i]); g.k[i] = 1;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
+    sprintf( inputstr, "d%d num hadamard:", i );
+    save_pt = &(g.n_had[i]); g.n_had[i] = 0;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
+    sprintf( inputstr, "d%d anisotropic:", i );
+    save_pt = &(g.anisotropic[i]); g.anisotropic[i] = 0;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
+    sprintf( inputstr, "d%d dilution:", i );
+    save_pt = &(g.dilution[i]); g.dilution[i] = 1;
     read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
 
 #ifdef CUDA_OPT
@@ -1295,18 +1445,28 @@ void allocate_for_global_struct_after_read_global_info( int ls ) {
   MALLOC( g.global_lattice, int*, ls );
   MALLOC( g.local_lattice, int*, ls );
   MALLOC( g.block_lattice, int*, ls );
+  MALLOC( g.global_k, int*, ls );
   g.global_lattice[0] = NULL;
   g.local_lattice[0] = NULL;
   g.block_lattice[0] = NULL;
+  g.global_k[0] = NULL;
   MALLOC( g.global_lattice[0], int, 4*ls );
   MALLOC( g.local_lattice[0], int, 4*ls );
   MALLOC( g.block_lattice[0], int, 4*ls );
+  MALLOC( g.global_k[0], int, 4*ls );
   MALLOC( g.post_smooth_iter, int, ls );
   MALLOC( g.ncycle, int, ls );
   MALLOC( g.relax_fac, double, ls );
   MALLOC( g.block_iter, int, ls );
   MALLOC( g.setup_iter, int, ls );
   MALLOC( g.num_eig_vect, int, ls );
+  MALLOC( g.trace_max_iters, int, ls );
+  MALLOC( g.trace_min_iters, int, ls );
+  MALLOC( g.k, int, ls );
+  MALLOC( g.num_colors, int, ls );
+  MALLOC( g.n_had, int, ls );
+  MALLOC( g.anisotropic, int, ls );
+  MALLOC( g.dilution, int, ls );
 #ifdef CUDA_OPT
   MALLOC( g.CUDA_threads_per_CUDA_block_type1, int, ls );
   MALLOC( g.CUDA_threads_per_lattice_site_type1, int, ls );
@@ -1318,6 +1478,7 @@ void allocate_for_global_struct_after_read_global_info( int ls ) {
     g.global_lattice[i] = g.global_lattice[0] + i*4;
     g.local_lattice[i] = g.local_lattice[0] + i*4;
     g.block_lattice[i] = g.block_lattice[0] + i*4;
+    g.global_k[i] = g.global_k[0] + i*4;
   }
 }
 
