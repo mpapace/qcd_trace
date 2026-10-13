@@ -24,9 +24,7 @@
   #include <cuda_runtime.h>
 #endif
 
-#ifdef HALF_PREC_STORAGE
-  #include <stdint.h>
-#endif
+#include <stdint.h>
 
 #include <stdio.h>
 #include <malloc.h>
@@ -178,6 +176,7 @@
 #include "hutchinson_double.h"
 #include "probing.h"
 #include "hierarchical.h"
+#include "sigma.h"
 
 #ifdef HAVE_LIME
 #include <lime.h>

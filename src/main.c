@@ -138,6 +138,7 @@ int main( int argc, char **argv ) {
     complex_double trace;
     int rnd_seed = 1234;
     srand( time( 0 ) + rnd_seed*g.my_rank );
+    
     {  
       hutchinson_diver_double_init( &l, &threading );  
       hutchinson_diver_double_alloc( &l, &threading ); 
@@ -149,44 +150,38 @@ int main( int argc, char **argv ) {
       
       if(g.my_rank==0) printf("\n\n Timeslice %d\n\n",  g.time_slice);
 
-      if(g.probing != 0 ){
-        if(coloring_flag == 0) 
-          graph_coloring();	
-       }else {
-         for(int i = 0; i<g.num_levels; i++){
-            g.num_colors[i] = 1;
-            dilution_check(i);
-         }
+      
+      if(coloring_flag == 0){
+        graph_coloring();
+        if(g.probing == 2) hp_loc_setup( &l );   // needs g.global_k, set by graph_coloring
+        coloring_flag = 1;
       }
       
-      if(g.probing == 1 && g.probing_dimension == 4)
-        coloring_flag = 1; //If we are doing 4D coloring, set coloring_flag to 1 after coloring the lattice, so at the next timeslice we do not color again
-
       set_probing_variances_to_zero();   
       
       if( g.trace_op_type == 12 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling Plain for G%dD 4D trace\n", g.gamma_idx); 
+        if(g.my_rank==0) printf("\nCalling Plain for G%dD 4D trace\n", g.gamma_idx); 
         END_MASTER(threadingx)
 
         trace = g5_hutchinson_driver_double( &l, &threading );
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling Plain for G%dD 4D trace = %f+i%f\n", g.gamma_idx, CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling Plain for G%dD 4D trace = %f+i%f\n", g.gamma_idx, CSPLIT(trace)); 
         fflush(0);
         END_MASTER(threadingx)
       }
       
       if( g.trace_op_type == 11 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling SPLIT MLMC for 4D trace\n"); 
+        if(g.my_rank==0) printf("\nCalling SPLIT MLMC for 4D trace\n"); 
         END_MASTER(threadingx)
 
         trace = split_mlmc_hutchinson_driver_double( &l, &threading );
         //trace = hutchinson_driver_double( &l, &threading );
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling SPLIT MLMC for 4D trace = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling SPLIT MLMC for 4D trace = %f+i%f\n", CSPLIT(trace)); 
         fflush(0);
         END_MASTER(threadingx)
       }
@@ -194,28 +189,28 @@ int main( int argc, char **argv ) {
       
       if( g.trace_op_type == 10 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling MLMC for 4D trace\n"); 
+        if(g.my_rank==0) printf("\nCalling MLMC for 4D trace\n"); 
         END_MASTER(threadingx)
 
         trace = mlmc_hutchinson_driver_double( &l, &threading );
         //trace = hutchinson_driver_double( &l, &threading );
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling MLMC for 4D trace = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling MLMC for 4D trace = %f+i%f\n", CSPLIT(trace)); 
         fflush(0);
         END_MASTER(threadingx)
       }
       
       if( g.trace_op_type == 9 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling Plain for 4D trace\n"); 
+        if(g.my_rank==0) printf("\n\nCalling Plain for 4D trace\n"); 
         END_MASTER(threadingx)
 
         trace = hutchinson_driver_double( &l, &threading );
         //trace = hutchinson_driver_double( &l, &threading );
 	//
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling Plain for 4D trace = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling Plain for 4D trace = %f+i%f\n", CSPLIT(trace)); 
         fflush(0);
         END_MASTER(threadingx)
       }
@@ -223,14 +218,14 @@ int main( int argc, char **argv ) {
        // this third case is the connected diagram operator, with Split
       if( g.trace_op_type == 8 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling SPLIT for connected diagram operator\n"); 
+        if(g.my_rank==0) printf("\n\nCalling SPLIT for connected diagram operator\n"); 
         END_MASTER(threadingx)
 
         trace = g5_3D_connected_split_driver_double( &l, &threading );
         //trace = hutchinson_driver_double( &l, &threading );
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling SPLIT for connected diagram operator = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling SPLIT for connected diagram operator = %f+i%f\n", CSPLIT(trace)); 
         fflush(0);
         END_MASTER(threadingx)
       }
@@ -238,14 +233,14 @@ int main( int argc, char **argv ) {
       // this third case is the connected diagram operator, with MLMC
       if( g.trace_op_type == 7 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling MLMC for connected diagram operator\n"); 
+        if(g.my_rank==0) printf("\n\nCalling MLMC for connected diagram operator\n"); 
         END_MASTER(threadingx)
 
         trace = g5_3D_connected_mlmc_driver_double( &l, &threading );
         //trace = hutchinson_driver_double( &l, &threading );
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from calling MLMC for connected diagram operator = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\n\nResulting trace from calling MLMC for connected diagram operator = %f+i%f\n", CSPLIT(trace)); 
         fflush(0);
         mlmc_connected_print_variances();
         END_MASTER(threadingx)
@@ -254,7 +249,7 @@ int main( int argc, char **argv ) {
       // this third case is the connected diagram operator, with plain
       if( g.trace_op_type == 6 ){
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Calling Hutchinson for connected diagram operator\n");
+        if(g.my_rank==0) printf("\n\nCalling Hutchinson for connected diagram operator\n");
         END_MASTER(threadingx)
 
         trace = g5_3D_connected_hutchinson_driver_double( &l, &threading );
@@ -267,7 +262,7 @@ int main( int argc, char **argv ) {
 
       if( g.trace_op_type == 2){
           START_MASTER(threadingx)
-          if(g.my_rank==0) printf("Using plain Hutchinson for computing the trace\n");
+          if(g.my_rank==0) printf("\n\nUsing plain Hutchinson for computing the trace\n");
           END_MASTER(threadingx)
 
           trace = gamma_3D_hutchinson_driver_double( &l, &threading );
@@ -283,7 +278,7 @@ int main( int argc, char **argv ) {
       if( g.trace_op_type == 1){
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("Using MLMC for computing the trace\n");
+        if(g.my_rank==0) printf("\n\nUsing MLMC for computing the trace\n");
         END_MASTER(threadingx)
 
         trace = g5_3D_mlmc_hutchinson_driver_double(&l, &threading);
