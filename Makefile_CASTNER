@@ -106,6 +106,8 @@ endif
 # Extra Warnings that developers should fix but don't.
 # This is a C only flag as implicit function declaration is forbidden in C++ anyways.
 COMPILE_FLAGS += -Wall -Werror-implicit-function-declaration
+# GCC >= 14 turns these into hard errors; keep them as warnings
+COMPILE_FLAGS += -Wno-error=incompatible-pointer-types -Wno-error=int-conversion
 LINK_FLAGS = -fopenmp -lm -ldl
 
 #LINK_FLAGS += -DHALF_PREC_STORAGE
