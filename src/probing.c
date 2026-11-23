@@ -139,7 +139,8 @@ int local_colors_size( int level ){
 }
 
 void setup_local_colors_direct(){
-    g.local_colors = (int**)malloc(g.num_levels * sizeof(int*));
+    // calloc: entries must start as NULL for the MALLOC macro
+    g.local_colors = (int**)calloc(g.num_levels, sizeof(int*));
 
     for(int level = 0; level < g.num_levels; level++){
         // local lattice of this level (not global/num_processes: coarse levels may merge processes)
