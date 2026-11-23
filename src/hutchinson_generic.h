@@ -11,9 +11,11 @@
 
   complex_PRECISION hutchinson_plain_PRECISION( int type_appl, level_struct *l, hutchinson_PRECISION_struct* h, struct Thread *threading );
 
-  struct sample hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading );
-  struct sample hp_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading );
-  struct sample sigma_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading );
+  struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type,
+                                                    int dil_level, struct Thread *threading );
+  level_struct* trace_vector_level_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type );
+  void probe_create_PRECISION( level_struct *vl, hutchinson_PRECISION_struct* h, int dil_level, struct Thread *threading );
+  void rademacher_create_PRECISION( level_struct *vl, hutchinson_PRECISION_struct* h, struct Thread *threading );
 
   void hutchinson_diver_PRECISION_init( level_struct *l, struct Thread *threading );
   void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading );

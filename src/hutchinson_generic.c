@@ -87,70 +87,48 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
   // set the pointer to the finest-level Hutchinson estimator
   h->hutch_compute_one_sample = hutchinson_plain_PRECISION;
 
-  estimate = hp_hutchinson_blind_PRECISION(lx, h, 0, threading);
+  estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
   trace += estimate.acc_trace / estimate.sample_size;
 
   return trace;
 }
 
-void probing_create_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  if( type==0 ){
-    START_MASTER(threading)
-    if(h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION || h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION){
-      vector_PRECISION_probing( h->probing_vector, 0, h->finest_level->inner_vector_size, h->finest_level, h->finest_level->depth );
-    }else{
-      vector_PRECISION_probing( h->probing_vector, 0, l->inner_vector_size, l, l->depth );
-    }
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else if( type==1 ){
-    START_MASTER(threading)
-    vector_PRECISION_probing( h->probing_vector, 0, l->next_level->inner_vector_size, l->next_level, l->next_level->depth );
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else{ error0("Unknown value for type of Rademacher vector in relation to level of creation\n"); }
+// Level on whose grid the stochastic vectors live for a given estimator term:
+// - type 1 : vectors on l->next_level (split intermediate terms)
+// - the 3D MGMLMC kernels work with vectors on the finest grid at every level
+// - otherwise : vectors on level l
+level_struct* trace_vector_level_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type ){
+  if( type==1 ) return l->next_level;
+  if( type!=0 ) error0("Unknown value for type of Rademacher vector in relation to level of creation\n");
+  if( h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION ||
+      h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION )
+    return h->finest_level;
+  return l;
 }
 
-void hadamard_create_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  if( type==0 ){
-    START_MASTER(threading)
-    if(h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION || h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION){
-      vector_PRECISION_hadamard( h->hadamard_vector, 0, h->finest_level->inner_vector_size, h->finest_level, h->finest_level->depth );
-    }else{
-      vector_PRECISION_hadamard( h->hadamard_vector, 0, l->inner_vector_size, l, l->depth );
-    }
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else if( type==1 ){
-    START_MASTER(threading)
-    vector_PRECISION_hadamard( h->hadamard_vector, 0, l->next_level->inner_vector_size, l->next_level, l->next_level->depth );
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else{ error0("Unknown value for type of Rademacher vector in relation to level of creation\n"); }
+// Build in h->probing_vector the probing vector of the current g.coloring_count and
+// g.dilution_count on the grid of level vl: plain dilution (probing 0), multiplier-based
+// coloring (probing 1) or Hadamard vector (probing 2). dil_level selects the dilution scheme.
+void probe_create_PRECISION( level_struct *vl, hutchinson_PRECISION_struct* h, int dil_level, struct Thread *threading ){
+  START_MASTER(threading)
+  if( g.probing == 0 )
+    vector_PRECISION_dilution( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
+  else if( g.probing == 1 )
+    vector_PRECISION_probing( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
+  else if( g.probing == 2 )
+    vector_PRECISION_hadamard( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
+  else
+    error0("Unknown probing selection %d\n", g.probing);
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
 }
 
-void rademacher_create_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  if( type==0 ){
-    START_MASTER(threading)
-    if(h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION || h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION){
-      vector_PRECISION_define_random_rademacher( h->rademacher_vector, 0, h->finest_level->inner_vector_size, h->finest_level );
-    }else{
-      vector_PRECISION_define_random_rademacher( h->rademacher_vector, 0, l->inner_vector_size, l );
-    }
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else if( type==1 ){
-    START_MASTER(threading)
-    vector_PRECISION_define_random_rademacher( h->rademacher_vector, 0, l->next_level->inner_vector_size, l->next_level );
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)
-  }
-  else{ error0("Unknown value for type of Rademacher vector in relation to level of creation\n"); }
+// Fill h->rademacher_vector with Z2 noise on the grid of level vl
+void rademacher_create_PRECISION( level_struct *vl, hutchinson_PRECISION_struct* h, struct Thread *threading ){
+  START_MASTER(threading)
+  vector_PRECISION_define_random_rademacher( h->rademacher_vector, 0, vl->inner_vector_size, vl );
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
 }
 
 // FIXME : hacked this function a bit to avoid compiler warnings
@@ -273,275 +251,128 @@ void print_variance_pc_PRECISION(level_struct *l, int iters){
 
 }
 
-// type : in case of 0 create Rademacher vectors at level l, in case of 1 create Rademacher vectors at level l->next_level
-// TODO: This function should be void to avoid compiler warning.
-struct sample hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  int i, j;
+// Stochastic estimation of the trace of the operator applied by h->hutch_compute_one_sample.
+//
+// - type 0 : noise vectors on level l (or on the finest grid for the 3D MGMLMC kernels),
+//   type 1 : noise vectors on l->next_level (see trace_vector_level_PRECISION)
+// - dil_level : level whose dilution scheme (g.dilution[dil_level]) is used
+//
+// For every sample ONE Z2 vector z0 is drawn and shared by all probing vectors
+// (colors x dilution pieces) of that sample: v = z0 .* probe. The sample is
+//   probing 0 (plain) and 1 (multiplier): sum over colors and dilution pieces
+//   probing 2 (hierarchical)            : sum over dilution pieces, average over
+//                                         the Hadamard vectors.
+// The returned acc_trace/sample_size is the estimate of the trace.
+struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type,
+                                                  int dil_level, struct Thread *threading ){
+  int i, j, start, end;
   complex_PRECISION one_sample=0.0, variance=0.0, trace=0.0;
-  double RMSD;
   struct sample estimate;
-  
-  // TODO : move this allocation to some init function
-  complex_PRECISION* samples = (complex_PRECISION*) malloc( h->max_iters[l->depth]*sizeof(complex_PRECISION) );
-  memset( samples, 0.0, h->max_iters[l->depth]*sizeof(complex_PRECISION) );
+
+  level_struct *vl = trace_vector_level_PRECISION( l, h, type );
+  int num_colors = g.num_colors[vl->depth];
+  int num_dil    = g.dilution[dil_level];
+  int max_iters  = h->max_iters[l->depth];
+  // index of g.variances where the variance of this estimator is stored
+  int var_idx    = ( g.trace_op_type == 7 ) ? h->lx_i->depth*g.num_levels + h->lx_j->depth : l->depth;
+
+  complex_PRECISION* samples = (complex_PRECISION*) malloc( max_iters*sizeof(complex_PRECISION) );
+  complex_PRECISION* traces  = (complex_PRECISION*) malloc( num_colors*sizeof(complex_PRECISION) );
+  for( i=0; i<max_iters; i++ ) samples[i] = 0.0;
+
+  compute_core_start_end( 0, vl->inner_vector_size, &start, &end, vl, threading );
 
   estimate.acc_trace = 0.0;
   double t0 = MPI_Wtime();
 
-  for( i=0; i<h->max_iters[l->depth];i++ ){
-    // 1. create Rademacher vector, stored in h->rademacher_vector
-    rademacher_create_PRECISION( l, h, type, threading );
+  for( i=0; i<max_iters; i++ ){
+    // 1. one Z2 vector z0 per sample, kept in h->rademacher_buffer
+    rademacher_create_PRECISION( vl, h, threading );
+    vector_PRECISION_copy( h->rademacher_buffer, h->rademacher_vector, start, end, vl );
+    SYNC_CORES(threading)
 
-    // 2. apply the operator to the Rademacher vector
-    // 3. dot product
-    one_sample = h->hutch_compute_one_sample( -1, l, h, threading );
+    for( j=0; j<num_colors; j++ ) traces[j] = 0.0;
 
-    samples[i] = one_sample;
+    for( g.coloring_count=0; g.coloring_count<num_colors; g.coloring_count++ ){
+      for( g.dilution_count=1; g.dilution_count<num_dil+1; g.dilution_count++ ){
 
-    // 4. compute estimated trace and variance, print something?
-    estimate.acc_trace += one_sample;
+        // 2. v = z0 .* probe
+        probe_create_PRECISION( vl, h, dil_level, threading );
+        hadamard_PRECISION_product( h->rademacher_vector, h->probing_vector, start, end, vl );
+        SYNC_CORES(threading)
 
-    if( i!=0 ){
-      variance = 0.0;
-      estimate.sample_size = i+1;
-      trace = estimate.acc_trace/estimate.sample_size;
-      for( j=0; j<=i; j++ ){
-        variance += conj(samples[j] - trace) * (samples[j] - trace);
-      }
-      variance = variance / i;
-      START_MASTER(threading);
-      if(g.my_rank==0) {
-        printf("[%d, trace: %e %c i%e, variance: %e] ", 
-        i, creal(trace),
-        (cimag(trace) < 0) ? '-' : '+',
-        fabs(cimag(trace)),
-        creal(variance));
-        
-        fflush(0);
-
-	if(g.my_rank==0) g.var_pc[l->depth][i] = creal(variance);
-
-        if(i == h->max_iters[l->depth] - 1 && g.trace_op_type != 7)
-          g.variances[l->depth] += creal(variance);
-
-        if(i == h->max_iters[l->depth] - 1 && g.trace_op_type == 7){
-          int nlevs = g.num_levels;
-          int idx = h->lx_i->depth*nlevs + h->lx_j->depth;
-          g.variances[idx] += creal(variance);
-        }
-      }
-      END_MASTER(threading);
-      RMSD = sqrt(creal(variance)/j);
-      if( i > h->min_iters[l->depth] && RMSD < cabs(trace) * h->trace_tol * h->tol_per_level[l->depth]) break;
-    }
-  }
-
-  //if(g.my_rank==0) print_variance_pc_PRECISION(l, h->max_iters[l->depth]);
-  double t1 = MPI_Wtime();
-  if(g.my_rank==0) {
-    printf("\n");
-    printf("Time for sample computation (Avg.): \t %f\n\n", (t1-t0)/h->max_iters[l->depth]);
-  }
-
-  estimate.sample_size = i;
-
-  free(samples);
-
-  return estimate;
-}
-
-struct sample sigma_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  int i, j;
-  complex_PRECISION one_sample=0.0, variance=0.0, trace=0.0;
-  double RMSD;
-  struct sample estimate;
-
-  // TODO : move this allocation to some init function
-  complex_PRECISION* samples = (complex_PRECISION*) malloc( h->max_iters[l->depth]*sizeof(complex_PRECISION) );
-  memset( samples, 0.0, h->max_iters[l->depth]*sizeof(complex_PRECISION) );
-
-  estimate.acc_trace = 0.0;
-  double t0 = MPI_Wtime();
-
-  for( i=0; i<h->max_iters[l->depth];i++ ){
-    // 1. create Rademacher vector, stored in h->rademacher_vector
-    rademacher_create_PRECISION( l, h, type, threading );
-    int start,end;
-    compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
-    vector_PRECISION_copy( h->rademacher_buffer, h->rademacher_vector, start, end, l );
-
-    complex_PRECISION* traces = (complex_PRECISION*) malloc( g.num_colors[l->depth]*sizeof(complex_PRECISION) );
-    memset( traces, 0.0, g.num_colors[l->depth]*sizeof(complex_PRECISION) );
-
-    for(g.coloring_count = 0; g.coloring_count < g.num_colors[l->depth]; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[l->depth] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nMultiplier-based probing iteration %d, color n. %d, dof = %d\n", i, g.coloring_count+1, g.dilution_count);
-        probing_create_PRECISION( l, h, type, threading );
-        hadamard_PRECISION_product( h->rademacher_vector, h->probing_vector, start, end, l );
-        // 2. apply the operator to the Rademacher vector
-        // 3. dot product
+        // 3. apply the operator and take the inner product
         one_sample = h->hutch_compute_one_sample( -1, l, h, threading );
 
-        // 4. compute estimated trace and variance
+        START_MASTER(threading)
         if(g.my_rank==0) {
           printf("[%d, color %d, dof %d out of %d, trace: %e %c i%e]\n",
-          i, g.coloring_count+1, g.dilution_count, g.dilution[l->depth], creal(one_sample),
-          (cimag(one_sample) < 0) ? '-' : '+',
-          fabs(cimag(one_sample)));
-
+                 i, g.coloring_count+1, g.dilution_count, num_dil, creal(one_sample),
+                 (cimag(one_sample) < 0) ? '-' : '+', fabs(cimag(one_sample)));
           fflush(0);
         }
+        END_MASTER(threading)
 
         traces[g.coloring_count] += one_sample;
         estimate.acc_trace += one_sample;
-        vector_PRECISION_copy( h->rademacher_vector, h->rademacher_buffer, start, end, l );
 
+        // restore z0 for the next probing vector
+        vector_PRECISION_copy( h->rademacher_vector, h->rademacher_buffer, start, end, vl );
+        SYNC_CORES(threading)
       }
 
+      START_MASTER(threading)
       if(g.my_rank==0){
-          printf("\n[It %d - Trace of col=%d: %e %c i%e]\n",
-          i, g.coloring_count+1, creal(traces[g.coloring_count]),
-          (cimag(traces[g.coloring_count]) < 0) ? '-' : '+',
-          fabs(cimag(traces[g.coloring_count])));
-
-          fflush(0);
+        printf("\n[It %d - Trace of h=%d: %e %c i%e]\n",
+               i, g.coloring_count+1, creal(traces[g.coloring_count]),
+               (cimag(traces[g.coloring_count]) < 0) ? '-' : '+', fabs(cimag(traces[g.coloring_count])));
+        fflush(0);
       }
-
+      END_MASTER(threading)
     }
 
-    for(j=0; j<g.num_colors[l->depth]; j++)
+    // 4. sample of this noise vector
+    for( j=0; j<num_colors; j++ )
       samples[i] += traces[j];
- 
-    if(g.my_rank==0) printf("\n[Trace of it %d = %e %c i%e]\n", i, creal(samples[i]), (cimag(samples[i]) < 0) ? '-' : '+', fabs(cimag(samples[i])));
+    if( g.probing == 2 ) samples[i] = samples[i]/num_colors;
 
-    variance = 0.0;
-    trace = 0.0;
-    if(i != 0){
-      for(j=0; j<=i; j++)
-        trace += samples[j];
+    START_MASTER(threading)
+    if(g.my_rank==0) printf("\n[Trace of it %d = %e %c i%e]\n", i, creal(samples[i]),
+                            (cimag(samples[i]) < 0) ? '-' : '+', fabs(cimag(samples[i])));
+    END_MASTER(threading)
+
+    // 5. running mean and unbiased variance over the samples so far
+    if( i != 0 ){
+      trace = 0.0;
+      for( j=0; j<=i; j++ ) trace += samples[j];
       trace = trace/(i+1);
 
-      for(j=0; j<=i; j++)
-        variance += conj(samples[j] - trace)*(samples[j] - trace);
+      variance = 0.0;
+      for( j=0; j<=i; j++ ) variance += conj(samples[j] - trace)*(samples[j] - trace);
       variance = variance/i;
 
-      if(g.my_rank==0) printf("\n[%d, trace: %e %c i%e, variance: %e]\n", i, creal(trace), (cimag(trace) < 0) ? '-' : '+', fabs(cimag(trace)), creal(variance));
-
+      START_MASTER(threading)
+      if(g.my_rank==0) {
+        printf("\n[%d, trace: %e %c i%e, variance: %e]\n", i, creal(trace),
+               (cimag(trace) < 0) ? '-' : '+', fabs(cimag(trace)), creal(variance));
+        g.var_pc[l->depth][i] = creal(variance);
+      }
+      END_MASTER(threading)
     }
-    free(traces);
-  }
-  if(g.my_rank==0) g.variances[l->depth] += creal(variance);
-  double t1 = MPI_Wtime();
-  if(g.my_rank==0) {
-    printf("\n");
-    printf("Time for sample computation (Avg.): \t %f\n\n", (t1-t0)/h->max_iters[l->depth]);
   }
 
-  estimate.sample_size = i;
+  START_MASTER(threading)
+  if(g.my_rank==0) {
+    g.variances[var_idx] += creal(variance);
+    printf("\nTime for sample computation (Avg.): \t %f\n\n", (MPI_Wtime()-t0)/max_iters);
+  }
+  END_MASTER(threading)
+
+  // acc_trace sums ALL quadratures: normalize to the per-sample convention above
+  estimate.sample_size = ( g.probing == 2 ) ? max_iters*num_colors : max_iters;
 
   free(samples);
-
-  return estimate;
-}
-
-struct sample hp_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, int type, struct Thread *threading ){
-  int i, j;
-  complex_PRECISION one_sample=0.0, variance=0.0, trace=0.0;
-  double RMSD;
-  struct sample estimate;
-
-  // TODO : move this allocation to some init function
-  complex_PRECISION* samples = (complex_PRECISION*) malloc( h->max_iters[l->depth]*sizeof(complex_PRECISION) );
-  memset( samples, 0.0, h->max_iters[l->depth]*sizeof(complex_PRECISION) );
-  
-  estimate.acc_trace = 0.0;
-  double t0 = MPI_Wtime();
-
-  for( i=0; i<h->max_iters[l->depth];i++ ){
-    // 1. create Rademacher vector, stored in h->rademacher_vector
-    rademacher_create_PRECISION( l, h, type, threading );
-    int start,end;
-    compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
-    vector_PRECISION_copy( h->rademacher_buffer, h->rademacher_vector, start, end, l );
-
-    complex_PRECISION* traces = (complex_PRECISION*) malloc( g.num_colors[l->depth]*sizeof(complex_PRECISION) );
-    memset( traces, 0.0, g.num_colors[l->depth]*sizeof(complex_PRECISION) );
-
-    for(g.coloring_count = 0; g.coloring_count < g.num_colors[l->depth]; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[l->depth] + 1; g.dilution_count++){
-          
-        if(g.my_rank == 0 && g.probing == 1) printf("\nMultiplier-based probing iteration %d, color n. %d, dof = %d\n", i, g.coloring_count+1, g.dilution_count);
-	    if(g.my_rank == 0 && g.probing == 2) printf("\nHierarchical probing iteration %d, Hadamard vector n. %d, dof = %d\n", i, g.coloring_count+1, g.dilution_count);
-        
-        if(g.probing == 1) probing_create_PRECISION( l, h, type, threading );
-	    if(g.probing == 2) hadamard_create_PRECISION( l, h, type, threading );
-        
-        if(g.probing == 1) hadamard_PRECISION_product( h->rademacher_vector, h->probing_vector, start, end, l );
-        if(g.probing == 2) hadamard_PRECISION_product( h->rademacher_vector, h->hadamard_vector, start, end, l );
-        // 2. apply the operator to the Rademacher vector
-        // 3. dot product
-        one_sample = h->hutch_compute_one_sample( -1, l, h, threading );
-
-	// 4. compute estimated trace and variance
-        if(g.my_rank==0) {
-          printf("[%d, color %d, dof %d out of %d, trace: %e %c i%e]\n",
-          i, g.coloring_count+1, g.dilution_count, g.dilution[l->depth], creal(one_sample),
-          (cimag(one_sample) < 0) ? '-' : '+',
-          fabs(cimag(one_sample)));
-
-          fflush(0);
-	}
-
-	traces[g.coloring_count] += one_sample;
-	estimate.acc_trace += one_sample;
-	vector_PRECISION_copy( h->rademacher_vector, h->rademacher_buffer, start, end, l );
-
-      }
-
-      if(g.my_rank==0){
-          printf("\n[It %d - Trace of h=%d: %e %c i%e]\n",
-          i, g.coloring_count+1, creal(traces[g.coloring_count]),
-          (cimag(traces[g.coloring_count]) < 0) ? '-' : '+',
-          fabs(cimag(traces[g.coloring_count])));
-
-          fflush(0);
-      }
-
-    }
-
-    for(j=0; j<g.num_colors[l->depth]; j++)
-      samples[i] += traces[j];
-    if(g.probing == 2) samples[i] = samples[i]/g.num_colors[l->depth];
-
-    if(g.my_rank==0) printf("\n[Trace of it %d = %e %c i%e]\n", i, creal(samples[i]), (cimag(samples[i]) < 0) ? '-' : '+', fabs(cimag(samples[i])));
-
-    variance = 0.0;
-    trace = 0.0;
-    if(i != 0){
-      for(j=0; j<=i; j++)
-        trace += samples[j];
-      trace = trace/(i+1);
-
-      for(j=0; j<=i; j++)
-        variance += conj(samples[j] - trace)*(samples[j] - trace);
-      variance = variance/i;
-
-      if(g.my_rank==0) printf("\n[%d, trace: %e %c i%e, variance: %e]\n", i, creal(trace), (cimag(trace) < 0) ? '-' : '+', fabs(cimag(trace)), creal(variance));
-
-    }
-    free(traces);
-  }
-  if(g.my_rank==0) g.variances[l->depth] += creal(variance);
-  double t1 = MPI_Wtime();
-  if(g.my_rank==0) {
-    printf("\n");
-    printf("Time for sample computation (Avg.): \t %f\n\n", (t1-t0)/h->max_iters[l->depth]);
-  }
-
-  if(g.probing == 1) estimate.sample_size = i;
-  if(g.probing == 2) estimate.sample_size = i*g.num_colors[l->depth];
-
-  free(samples);
+  free(traces);
 
   return estimate;
 }
@@ -556,7 +387,7 @@ complex_PRECISION gamma_3D_hutchinson_driver_PRECISION( level_struct *l, struct 
   // set the pointer to the finest-level Hutchinson estimator
   h->hutch_compute_one_sample = gamma_3D_hutchinson_plain_PRECISION;
 
-  estimate = hp_hutchinson_blind_PRECISION(lx, h, 0, threading);
+  estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
   trace += estimate.acc_trace / estimate.sample_size;
 
   // if deflation vectors are available
@@ -578,21 +409,9 @@ complex_PRECISION g5_3D_connected_hutchinson_driver_PRECISION( level_struct *l, 
   h->hutch_compute_one_sample = g5_3D_connected_hutchinson_plain_PRECISION;
   for ( g.time_slice_inner_connected=0; g.time_slice_inner_connected<g.global_lattice[0][0]; g.time_slice_inner_connected++ ) {
     
-    if (g.probing != 0) {
-      for (g.coloring_count = 1; g.coloring_count < g.num_colors[0] + 1; g.coloring_count++){
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[0] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nColor %d, dilution %d", g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-	}
-      }
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[0] + 1; g.dilution_count++){
-          if(g.my_rank == 0) printf("\nDilution %d", g.dilution_count);
-          estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-          trace += estimate.acc_trace / estimate.sample_size;
-	}
-    }
+    // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
     // estimate = hutchinson_blind_PRECISION( lx, h, 0, threading );
     // trace += estimate.acc_trace/estimate.sample_size;
   }
@@ -1588,21 +1407,9 @@ complex_PRECISION g5_3D_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   for( i=0; i<g.num_levels-1; i++ ){
     // set the pointer to the mlmc difference operator
     h->hutch_compute_one_sample = g5_3D_hutchinson_mlmc_difference_PRECISION;
-    if (g.probing != 0) {
-      for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-	}
-      }
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-          if(g.my_rank == 0) printf("\nLevel %d Dilution %d", i, g.dilution_count);
-          estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-          trace += estimate.acc_trace / estimate.sample_size;
-	  }
-    }
+    // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
     
     //if deflation vectors are available
     //if(g.trace_deflation_type[lx->depth] != 0){
@@ -1615,21 +1422,9 @@ complex_PRECISION g5_3D_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   // set the pointer to the coarsest-level Hutchinson estimator
   h->hutch_compute_one_sample = g5_3D_hutchinson_mlmc_coarsest_PRECISION;
   
-  if (g.probing != 0) {
-  for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-    for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-      if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-      estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-      trace += estimate.acc_trace / estimate.sample_size;
-     }
-  }
-  } else {
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d Dilution %d", i, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-     }
-  }
+  // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
   //if deflation vectors are available
   //if(g.trace_deflation_type[lx->depth] != 0){
   //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -1659,21 +1454,9 @@ complex_PRECISION g5_3D_connected_mlmc_driver_PRECISION( level_struct *l, struct
       
       // Call to blind from t+t’ with t’ = 0, ..., T-1
       for ( g.time_slice_inner_connected=0; g.time_slice_inner_connected<g.global_lattice[0][0]; g.time_slice_inner_connected++ ) {
-        if (g.probing != 0) {
-          for (g.coloring_count = 1; g.coloring_count < g.num_colors[0] + 1; g.coloring_count++) {
-            for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-              if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-              estimate = hutchinson_blind_PRECISION(h->finest_level, h, 0, threading);
-              trace += estimate.acc_trace / estimate.sample_size;
-	     }
-          }
-        } else {
-          for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-              if(g.my_rank == 0) printf("\nLevel %d Dilution %d", i,  g.dilution_count);
-              estimate = hutchinson_blind_PRECISION(h->finest_level, h, 0, threading);
-              trace += estimate.acc_trace / estimate.sample_size;
-	     }
-        }
+        // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( h->finest_level, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
       }
       
       trace = trace/g.time_slice_inner_connected;
@@ -2826,21 +2609,9 @@ complex_PRECISION g5_3D_connected_split_driver_PRECISION( level_struct *l, struc
           // Call to blind from t+t’ with t’ = 0, ..., T-1
           for ( g.time_slice_inner_connected=0; g.time_slice_inner_connected < g.global_lattice[0][0]; g.time_slice_inner_connected++ ) {
 
-            if (g.probing != 0) {
-              for (g.coloring_count = 1; g.coloring_count < g.num_colors[0] + 1; g.coloring_count++) {
-                for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-                  if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-                  estimate = hutchinson_blind_PRECISION(h->finest_level, h, 0, threading);
-                  trace += estimate.acc_trace / estimate.sample_size;
-	        }
-              }
-            } else {
-                for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-                  if(g.my_rank == 0) printf("\nLevel %d Dilution %d", i, g.dilution_count);
-                  estimate = hutchinson_blind_PRECISION(h->finest_level, h, 0, threading);
-                  trace += estimate.acc_trace / estimate.sample_size;
-	        }
-              }
+            // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( h->finest_level, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
            }
 
         trace = trace/g.time_slice_inner_connected;
@@ -2957,21 +2728,9 @@ complex_PRECISION g5_hutchinson_driver_PRECISION( level_struct *l, struct Thread
   // set the pointer to the finest-level Hutchinson estimator
   h->hutch_compute_one_sample = g5_hutchinson_plain_PRECISION;
 
-  if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[0] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[0] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nColor %d, dilution %d", g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-    }
-  } else {
-    for(g.dilution_count = 1; g.dilution_count < g.dilution[0] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nColor %d, dilution %d", g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-  }
+  // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
 
   return trace;
 }
@@ -3048,21 +2807,9 @@ complex_PRECISION mlmc_hutchinson_driver_PRECISION( level_struct *l, struct Thre
   for( i=0; i<g.num_levels-1; i++ ){ 
     // set the pointer to the mlmc difference operator
     h->hutch_compute_one_sample = hutchinson_mlmc_difference_PRECISION;
-    if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-     }
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-    }
+    // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
     // if deflation vectors are available
     //if(g.trace_deflation_type[lx->depth] != 0){
     //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -3073,21 +2820,9 @@ complex_PRECISION mlmc_hutchinson_driver_PRECISION( level_struct *l, struct Thre
   // coarsest level
   // set the pointer to the coarsest-level Hutchinson estimator
   h->hutch_compute_one_sample = hutchinson_plain_PRECISION;
-  if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-    }
-  } else {
-    for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-  }
+  // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
   // if deflation vectors are available
   //if(g.trace_deflation_type[lx->depth] != 0){
   //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -3225,25 +2960,15 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   for( i=0; i<g.num_levels-1 ;i++ ){  
     // set the pointer to the split full rank operator
     h->hutch_compute_one_sample = hutchinson_split_intermediate_PRECISION;
-    if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[i+1] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i+1] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d",  i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 1, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-     }
+    // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 1, i+1, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
+    START_MASTER(threading)
     if(g.my_rank == 0){
-        printf("\nTrace at level %d split full rank operator, Variance = %f\n", i+1, g.variances[i]);
-        g.variances[i]=0.0;
-     }
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i+1] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d",  i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 1, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
+      printf("\nTrace at level %d split full rank operator, Variance = %f\n", i+1, g.variances[i]);
+      g.variances[i]=0.0;
     }
+    END_MASTER(threading)
 
     // if deflation vectors are available
     //if( g.trace_deflation_type[lx->depth] != 0 ){
@@ -3259,23 +2984,13 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   for( i=0; i<g.num_levels-1;i++ ){      
     // set the pointer to the split orthogonal operator
     h->hutch_compute_one_sample = hutchinson_split_orthogonal_PRECISION;
-    if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-     }
-     if(g.my_rank == 0)
-        printf("\nTrace at level %d split orthogonal operator, Variance = %f\n", i+1, g.variances[i]);
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-    }
+    // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
+    START_MASTER(threading)
+    if(g.my_rank == 0)
+      printf("\nTrace at level %d split orthogonal operator, Variance = %f\n", i+1, g.variances[i]);
+    END_MASTER(threading)
 
     // if deflation vectors are available
     //if( g.trace_deflation_type[lx->depth] != 0 ){
@@ -3289,31 +3004,13 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   // coarsest level
   // set the pointer to the coarsest-level Hutchinson estimator
   h->hutch_compute_one_sample = hutchinson_plain_PRECISION;
-  if (g.probing != 0) {
-    for (g.coloring_count = 1; g.coloring_count < g.num_colors[i] + 1; g.coloring_count++){
-      for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-	// if deflation vectors are available
-        //if(g.trace_deflation_type[lx->depth] != 0){
-       //  trace += hutchinson_deflated_direct_term_PRECISION(lx, h, threading);
-      //}
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-     }
-     if(g.my_rank == 0)
-        printf("\nTrace at level %d coarsest level operator, Variance = %f\n", g.num_levels, g.variances[g.num_levels-1]);
-    } else {
-        for(g.dilution_count = 1; g.dilution_count < g.dilution[i] + 1; g.dilution_count++){
-        if(g.my_rank == 0) printf("\nLevel %d color %d, dilution %d", i, g.coloring_count, g.dilution_count);
-        estimate = hutchinson_blind_PRECISION(lx, h, 0, threading);
-	// if deflation vectors are available
-        //if(g.trace_deflation_type[lx->depth] != 0){
-       //  trace += hutchinson_deflated_direct_term_PRECISION(lx, h, threading);
-      //}
-        trace += estimate.acc_trace / estimate.sample_size;
-      }
-    }
+  // colors and dilution are looped inside the blind routine, with one shared z0 per sample
+    estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
+    trace += estimate.acc_trace / estimate.sample_size;
+  START_MASTER(threading)
+  if(g.my_rank == 0)
+    printf("\nTrace at level %d coarsest level operator, Variance = %f\n", g.num_levels, g.variances[g.num_levels-1]);
+  END_MASTER(threading)
 
   return trace;
 }
