@@ -265,7 +265,7 @@ void print_variance_pc_PRECISION(level_struct *l, int iters){
 
   interval = sqrt(var_var/iters);
 
-  if(g.probing =! 0) printf("\nVariance of color %d - dilution index %d = %f +- %f\n", g.coloring_count, g.dilution_count, var_avg, interval);
+  if(g.probing != 0) printf("\nVariance of color %d - dilution index %d = %f +- %f\n", g.coloring_count, g.dilution_count, var_avg, interval);
   if(g.probing == 0) printf("\nVariance of dilution index %d = %f +- %f\n", g.dilution_count, var_avg, interval);
 
   for(int i = 0; i < g.trace_max_iters[l->depth]; i ++)
