@@ -550,17 +550,9 @@ void method_finalize( level_struct *l ) {
   int ls = MAX(g.num_desired_levels,2);
   if(g.probing == 2) hp_loc_free( l );
   if(g.probing == 1){
-    int num_processes;
-    MPI_Comm_size(MPI_COMM_WORLD, &num_processes);
     for(int level = 0; level < g.num_levels; level++){
-        int T = g.global_lattice[level][0];
-        int Z = g.global_lattice[level][1];
-        int Y = g.global_lattice[level][2];
-        int X = g.global_lattice[level][3];
-        int size = T * Z * Y * X;
-
-        int local_size = size/num_processes;
-        FREE(g.local_colors[level], int, local_size);
+        // must match the allocation size in setup_local_colors_direct()
+        FREE(g.local_colors[level], int, local_colors_size( level ));
     }
     free(g.local_colors);
   }

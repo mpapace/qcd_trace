@@ -131,30 +131,32 @@ void get_coloring_dimension(){
     g.probing_dimension = 4;
 }
 
-void setup_local_colors_direct(){
-    int dims[4], periods[4], coords[4];
-    MPI_Cart_get(g.comm_cart, 4, dims, periods, coords);
+// number of lattice sites stored per process at a given depth
+// (coarse levels may merge processes: use the level's own local lattice)
+int local_colors_size( int level ){
+    return g.local_lattice[level][0] * g.local_lattice[level][1]
+         * g.local_lattice[level][2] * g.local_lattice[level][3];
+}
 
+void setup_local_colors_direct(){
     g.local_colors = (int**)malloc(g.num_levels * sizeof(int*));
 
     for(int level = 0; level < g.num_levels; level++){
-        int T = g.global_lattice[level][0];
-        int Z = g.global_lattice[level][1];
-        int Y = g.global_lattice[level][2];
-        int X = g.global_lattice[level][3];
-        int Nt_loc = T / dims[0];
-        int Nz_loc = Z / dims[1];
-        int Ny_loc = Y / dims[2];
-        int Nx_loc = X / dims[3];
-        const int local_size = Nt_loc * Nz_loc * Ny_loc * Nx_loc;
+        // local lattice of this level (not global/num_processes: coarse levels may merge processes)
+        int Nt_loc = g.local_lattice[level][0];
+        int Nz_loc = g.local_lattice[level][1];
+        int Ny_loc = g.local_lattice[level][2];
+        int Nx_loc = g.local_lattice[level][3];
+        const int local_size = local_colors_size( level );
 
         MALLOC(g.local_colors[level], int, local_size);
 
-        // global coordinate offsets of this rank's block
-        int t0 = coords[0] * Nt_loc;
-        int z0 = coords[1] * Nz_loc;
-        int y0 = coords[2] * Ny_loc;
-        int x0 = coords[3] * Nx_loc;
+        // global coordinate offsets of this rank's block (only used at depth 0,
+        // where every process owns exactly one block of the process grid)
+        int t0 = g.my_coords[0] * Nt_loc;
+        int z0 = g.my_coords[1] * Nz_loc;
+        int y0 = g.my_coords[2] * Ny_loc;
+        int x0 = g.my_coords[3] * Nx_loc;
 
         int idx = 0;
         for (int lt = 0; lt < Nt_loc; lt++)
