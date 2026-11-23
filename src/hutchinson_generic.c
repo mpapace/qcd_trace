@@ -2916,25 +2916,17 @@ complex_PRECISION g5_hutchinson_plain_PRECISION( int type_appl, level_struct *l,
     gmres_PRECISION_struct* p = get_p_struct_PRECISION( l );
     compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
 
+    // Apply Gamma out-of-place: b = gamma * z.
+    // NEVER apply spin-off-diagonal gammas in place (out==in overwrites
+    // spin components before their partners are read).
     if ( type_appl==-1 ) {
-      vector_PRECISION_copy( p->b, h->rademacher_vector, start, end, l );
+      if(g.gamma_idx == 5)      gamma5_PRECISION( p->b, h->rademacher_vector, l, threading );
+      else if(g.gamma_idx == 0) gamma0_PRECISION( p->b, h->rademacher_vector, l, threading );
+      else if(g.gamma_idx == 1) gamma1_PRECISION( p->b, h->rademacher_vector, l, threading );
+      else if(g.gamma_idx == 2) gamma2_PRECISION( p->b, h->rademacher_vector, l, threading );
+      else if(g.gamma_idx == 3) gamma3_PRECISION( p->b, h->rademacher_vector, l, threading );
+      else vector_PRECISION_copy( p->b, h->rademacher_vector, start, end, l );  // identity
     }
-    
-    // Apply Gamma_5
-    if(g.gamma_idx == 5)
-      gamma5_PRECISION( p->b, p->b, l, threading );
-
-    if(g.gamma_idx == 0)
-      gamma0_PRECISION( p->b, p->b, l, threading );
-
-    if(g.gamma_idx == 1)
-      gamma1_PRECISION( p->b, p->b, l, threading );
-
-    if(g.gamma_idx == 2)
-      gamma2_PRECISION( p->b, p->b, l, threading );
-
-    if(g.gamma_idx == 3)
-      gamma3_PRECISION( p->b, p->b, l, threading );
   }
 
   {
