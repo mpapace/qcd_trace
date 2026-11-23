@@ -135,7 +135,8 @@ typedef struct global_struct
 
     int probing; //0 - no probing, 1 - classical, 2 - hierarchical
     int probing_dimension; // 4D or 3D coloring
-    int coloring_distance; // for classical
+    int coloring_distance; // for classical: default coloring distance of every level
+    int *coloring_dist;    // coloring distance of every level ("dN coloring distance:")
     int colored_grids; //grids to be colored in the multilevel decomposition from fine to coarse
     int *k; // for hierarchical
     int *anisotropic;
@@ -147,7 +148,7 @@ typedef struct global_struct
     int *dilution;
     int dilution_count;
 
-    int sigma[4];
+    int **sigma;           // sigma[level][mu] of the multiplier-based coloring of every level
 
     int *n_had;
     int **global_k;

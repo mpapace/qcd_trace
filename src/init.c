@@ -594,6 +594,9 @@ void method_finalize( level_struct *l ) {
   FREE( g.n_had, int, ls );
   FREE( g.anisotropic, int, ls );
   FREE( g.dilution, int, ls );
+  for ( int lv=0; lv<ls; lv++ ) FREE( g.sigma[lv], int, 4 );
+  FREE( g.sigma, int*, ls );
+  FREE( g.coloring_dist, int, ls );
 
 #ifdef CUDA_OPT
   FREE( g.CUDA_threads_per_CUDA_block_type1, int, ls );
@@ -1080,6 +1083,10 @@ void read_geometry_data( FILE *in, int ls ) {
     save_pt = &(g.dilution[i]); g.dilution[i] = 1;
     read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
 
+    sprintf( inputstr, "d%d coloring distance:", i );
+    save_pt = &(g.coloring_dist[i]); g.coloring_dist[i] = g.coloring_distance;
+    read_parameter( &save_pt, inputstr, "%d", 1, in, _DEFAULT_SET );
+
 #ifdef CUDA_OPT
     sprintf( inputstr, "d%d CUDA threads per CUDA block type1:", i );
     save_pt = &(g.CUDA_threads_per_CUDA_block_type1[i]);
@@ -1480,6 +1487,9 @@ void allocate_for_global_struct_after_read_global_info( int ls ) {
   MALLOC( g.n_had, int, ls );
   MALLOC( g.anisotropic, int, ls );
   MALLOC( g.dilution, int, ls );
+  MALLOC( g.coloring_dist, int, ls );
+  MALLOC( g.sigma, int*, ls );
+  for ( i=0; i<ls; i++ ) { g.sigma[i] = NULL; MALLOC( g.sigma[i], int, 4 ); }
 #ifdef CUDA_OPT
   MALLOC( g.CUDA_threads_per_CUDA_block_type1, int, ls );
   MALLOC( g.CUDA_threads_per_lattice_site_type1, int, ls );

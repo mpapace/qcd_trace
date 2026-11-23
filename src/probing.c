@@ -170,8 +170,8 @@ void setup_local_colors_direct(){
                             int z = z0 + lz;
                             int y = y0 + ly;
                             int x = x0 + lx;
-                            int col = ( g.sigma[0]*t + g.sigma[1]*z
-                                      + g.sigma[2]*y + g.sigma[3]*x ) % g.num_colors[0];
+                            int col = ( g.sigma[level][0]*t + g.sigma[level][1]*z
+                                      + g.sigma[level][2]*y + g.sigma[level][3]*x ) % g.num_colors[level];
                             // manual two-form override for d=7 would replace the line above:
                             //   96^3: int col = 3*(( z + 2*y + 11*x ) % 48) + ( y % 3 );
                             //   64^3: int col = 2*(( z + 3*y + 13*x ) % 64) + (( y + x ) % 2);
@@ -183,35 +183,72 @@ void setup_local_colors_direct(){
     }
 }
 
-void get_sigma(){
+// Multiplier-based coloring tables, selected by the geometry of each level.
+// 4D tables are keyed by T x Z x Y x X, 3D tables by Z x Y x X.
+typedef void (*sigma_table_fn)( int dist, int *sigma, int *nc );
+typedef struct { int dim; int ext[4]; sigma_table_fn fn; } sigma_table_entry;
 
-  if(g.probing_dimension == 4){
-    if(g.global_lattice[0][0] == 8 && g.global_lattice[0][1] == 8 && g.global_lattice[0][2] == 8 && g.global_lattice[0][3] == 8)
-      get_sigma_4D_8x8x8x8();
-    else if(g.global_lattice[0][0] == 64 && g.global_lattice[0][1] == 32 && g.global_lattice[0][2] == 32 && g.global_lattice[0][3] == 32)
-      get_sigma_4D_64x32x32x32();
-    else if(g.global_lattice[0][0] == 128 && g.global_lattice[0][1] == 64 && g.global_lattice[0][2] == 64 && g.global_lattice[0][3] == 64)
-      get_sigma_4D_128x64x64x64();
-    else if(g.global_lattice[0][0] == 192 && g.global_lattice[0][1] == 96 && g.global_lattice[0][2] == 96 && g.global_lattice[0][3] == 96)
-      get_sigma_4D_192x96x96x96();
-    else
-      printf("\nNo computed sigmas for %dx%dx%dx%d lattice\n", g.global_lattice[0][0],g.global_lattice[0][1],g.global_lattice[0][2],g.global_lattice[0][3]);
+static const sigma_table_entry sigma_tables[] = {
+  // fine lattices
+  { 4, {   8,  8,  8,  8 }, get_sigma_4D_8x8x8x8         },
+  { 4, {  64, 32, 32, 32 }, get_sigma_4D_64x32x32x32     },
+  { 4, { 128, 64, 64, 64 }, get_sigma_4D_128x64x64x64    },
+  { 4, { 192, 96, 96, 96 }, get_sigma_4D_192x96x96x96    },
+  { 3, {   0,  8,  8,  8 }, get_sigma_3D_8x8x8           },
+  { 3, {   0, 32, 32, 32 }, get_sigma_3D_32x32x32        },
+  { 3, {   0, 64, 64, 64 }, get_sigma_3D_64x64x64        },
+  { 3, {   0, 96, 96, 96 }, get_sigma_3D_96x96x96        },
+  // coarse levels (placeholders, see sigma.c)
+  { 4, {  16,  8,  8,  8 }, get_sigma_4D_16x8x8x8        },
+  { 4, {   4,  2,  2,  2 }, get_sigma_4D_4x2x2x2         },
+  { 4, {  32, 16, 16, 16 }, get_sigma_4D_32x16x16x16     },
+  { 4, {   8,  4,  4,  4 }, get_sigma_4D_8x4x4x4         },
+  { 4, {  48, 24, 24, 24 }, get_sigma_4D_48x24x24x24     },
+  { 4, {  12,  6,  6,  6 }, get_sigma_4D_12x6x6x6        },
+  { 4, {   2,  2,  2,  2 }, get_sigma_4D_2x2x2x2         },
+  { 4, {   4,  4,  4,  4 }, get_sigma_4D_4x4x4x4         },
+  { 3, {   0,  2,  2,  2 }, get_sigma_3D_2x2x2           },
+  { 3, {   0,  4,  4,  4 }, get_sigma_3D_4x4x4           },
+  { 3, {   0,  6,  6,  6 }, get_sigma_3D_6x6x6           },
+  { 3, {   0, 16, 16, 16 }, get_sigma_3D_16x16x16        },
+  { 3, {   0, 24, 24, 24 }, get_sigma_3D_24x24x24        },
+};
+
+// Fill g.sigma[level] and g.num_colors[level] for the coloring distance of that level
+void get_sigma( int level ){
+  int *n = g.global_lattice[level];
+  int dist = g.coloring_dist[level];
+  int found = 0;
+
+  for( int mu=0; mu<4; mu++ ) g.sigma[level][mu] = 0;
+  g.num_colors[level] = 0;
+
+  for( int e=0; e<(int)(sizeof(sigma_tables)/sizeof(sigma_tables[0])); e++ ){
+    const sigma_table_entry *t = &sigma_tables[e];
+    if( t->dim != g.probing_dimension ) continue;
+    int match = 1;
+    for( int mu = (t->dim==4) ? 0 : 1; mu<4; mu++ )
+      if( t->ext[mu] != n[mu] ) match = 0;
+    if( match ){
+      t->fn( dist, g.sigma[level], &(g.num_colors[level]) );
+      found = 1;
+      break;
+    }
   }
 
-  if(g.probing_dimension == 3){
-    if(g.global_lattice[0][1] == 8 && g.global_lattice[0][2] == 8 && g.global_lattice[0][3] == 8)
-      get_sigma_3D_8x8x8();
-    else if(g.global_lattice[0][1] == 32 && g.global_lattice[0][2] == 32 && g.global_lattice[0][3] == 32)
-      get_sigma_3D_32x32x32();
-    else if(g.global_lattice[0][1] == 64 && g.global_lattice[0][2] == 64 && g.global_lattice[0][3] == 64)
-      get_sigma_3D_64x64x64();
-    else if(g.global_lattice[0][1] == 96 && g.global_lattice[0][2] == 96 && g.global_lattice[0][3] == 96)
-      get_sigma_3D_96x96x96();
-    else
-      printf("\nNo computed sigmas for %dx%dx%d lattice\n", g.global_lattice[0][1],g.global_lattice[0][2],g.global_lattice[0][3]);
-  }
-    
-    
+  if( !found )
+    error0("No sigma table for the %dD coloring of the %dx%dx%dx%d lattice at depth %d\n",
+           g.probing_dimension, n[0], n[1], n[2], n[3], level);
+  if( g.num_colors[level] == 0 )
+    error0("No sigma entry for coloring distance %d of the %dx%dx%dx%d lattice at depth %d\n",
+           dist, n[0], n[1], n[2], n[3], level);
+
+  // torus validity: sigma_mu * n_mu must vanish mod nc, otherwise the coloring
+  // silently violates its distance across the periodic boundary
+  for( int mu = (g.probing_dimension==4) ? 0 : 1; mu<4; mu++ )
+    if( ( g.sigma[level][mu] * n[mu] ) % g.num_colors[level] != 0 )
+      error0("multiplier coloring INVALID on the torus at depth %d: sigma[%d]=%d, n=%d, nc=%d\n",
+             level, mu, g.sigma[level][mu], n[mu], g.num_colors[level]);
 }
 
 void dilution_check(int level){
@@ -238,32 +275,23 @@ void dilution_check(int level){
 }
 
 void coloring_scheme(){
-  // sigma / num_colors selection: pure table lookup, must now run on ALL ranks
-  // (previously rank-0 only; other ranks learned the coloring via the Bcast)
+  // sigma / num_colors selection: pure table lookup on ALL ranks, one coloring per level
+  for( int level = 0; level < g.num_levels; level++ )
+    get_sigma( level );
 
-  get_sigma();
-
-  // legacy safety Bcasts (harmless if already consistent on all ranks)
-  MPI_Bcast(g.num_colors, g.num_levels, MPI_INT, 0, g.comm_cart);
-  MPI_Bcast(g.dilution,   g.num_levels, MPI_INT, 0, g.comm_cart);
+  // coarse levels are not probed yet: their probing vectors need the coarse site
+  // ordering, which comes with the next step
+  for( int level = 1; level < g.num_levels; level++ )
+    g.num_colors[level] = 1;
 
   if(g.my_rank==0){
     printf("\nProbing = %d - Classical probing\n", g.probing);
-    printf("Coloring_distance = %d\n", g.coloring_distance);
     printf("Grids to be colored = %d\n", g.colored_grids);
     printf("Coloring dimension = %d\n", g.probing_dimension);
-    printf("sigma: %d %d %d %d\n", g.sigma[0], g.sigma[1], g.sigma[2], g.sigma[3]);
+    for( int level = 0; level < g.num_levels; level++ )
+      printf("Depth %d: coloring distance = %d, sigma = %d %d %d %d\n", level, g.coloring_dist[level],
+             g.sigma[level][0], g.sigma[level][1], g.sigma[level][2], g.sigma[level][3]);
   }
-
-  // torus validity: sigma_mu * n_mu must vanish mod nc, otherwise the coloring
-  // silently violates its distance across the periodic boundary
-  //for( int mu=0; mu<4; mu++ )
-    //if( ( g.sigma[mu] * g.global_lattice[0][mu] ) % g.num_colors[0] != 0 )
-      //error0("multiplier coloring INVALID on this torus: sigma[%d]=%d, n=%d, nc=%d\n",
-        //     mu, g.sigma[mu], g.global_lattice[0][mu], g.num_colors[0]);
-
-  for( int level = 1; level < g.num_levels; level++ )
-    g.num_colors[level] = 1;
 
   for( int level = 0; level < g.num_levels; level++ )
     dilution_check(level);
