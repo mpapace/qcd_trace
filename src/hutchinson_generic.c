@@ -97,16 +97,16 @@ void probing_create_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h, 
   if( type==0 ){
     START_MASTER(threading)
     if(h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION || h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION){
-      vector_PRECISION_probing( h->probing_vector, 0, h->finest_level->inner_vector_size, h->finest_level );
+      vector_PRECISION_probing( h->probing_vector, 0, h->finest_level->inner_vector_size, h->finest_level, h->finest_level->depth );
     }else{
-      vector_PRECISION_probing( h->probing_vector, 0, l->inner_vector_size, l );
+      vector_PRECISION_probing( h->probing_vector, 0, l->inner_vector_size, l, l->depth );
     }
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
   }
   else if( type==1 ){
     START_MASTER(threading)
-    vector_PRECISION_probing( h->probing_vector, 0, l->next_level->inner_vector_size, l->next_level );
+    vector_PRECISION_probing( h->probing_vector, 0, l->next_level->inner_vector_size, l->next_level, l->next_level->depth );
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
   }
@@ -117,16 +117,16 @@ void hadamard_create_PRECISION( level_struct *l, hutchinson_PRECISION_struct* h,
   if( type==0 ){
     START_MASTER(threading)
     if(h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_difference_PRECISION || h->hutch_compute_one_sample == g5_3D_hutchinson_mlmc_coarsest_PRECISION){
-      vector_PRECISION_hadamard( h->hadamard_vector, 0, h->finest_level->inner_vector_size, h->finest_level );
+      vector_PRECISION_hadamard( h->hadamard_vector, 0, h->finest_level->inner_vector_size, h->finest_level, h->finest_level->depth );
     }else{
-      vector_PRECISION_hadamard( h->hadamard_vector, 0, l->inner_vector_size, l );
+      vector_PRECISION_hadamard( h->hadamard_vector, 0, l->inner_vector_size, l, l->depth );
     }
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
   }
   else if( type==1 ){
     START_MASTER(threading)
-    vector_PRECISION_hadamard( h->hadamard_vector, 0, l->next_level->inner_vector_size, l->next_level );
+    vector_PRECISION_hadamard( h->hadamard_vector, 0, l->next_level->inner_vector_size, l->next_level, l->next_level->depth );
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
   }

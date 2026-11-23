@@ -102,21 +102,57 @@ int get_dilution_value_PRECISION(int idx, int level){
     return val;
 }
 
-void vector_PRECISION_probing( vector_PRECISION phi, int start, int end, level_struct *l ) {
+// Fill e_tab[0..nvar-1] with the dilution pattern of the current g.dilution_count,
+// using the dilution scheme of level dil_level. On coarse grids (nvar != 12) only
+// "no dilution" is implemented so far.
+static void dilution_table_PRECISION( int *e_tab, int nvar, int dil_level ) {
+  if( nvar != 12 && g.dilution[dil_level] != 1 )
+    error0("dilution %d requested on a grid with %d dof per site: only dilution 1 is implemented on coarse grids\n",
+           g.dilution[dil_level], nvar);
+  for( int k=0; k<nvar; k++ )
+    e_tab[k] = (nvar == 12) ? get_dilution_value_PRECISION( k, dil_level ) : 1;
+}
+
+// Plain (unprobed) diluted vector: the dilution pattern on every site.
+// phi is a vector on level l; dil_level selects the dilution scheme.
+void vector_PRECISION_dilution( vector_PRECISION phi, int start, int end, level_struct *l, int dil_level ) {
   int thread = omp_get_thread_num();
   if(thread == 0 && start != end)
     PROF_PRECISION_START( _SET );
 
   if ( phi != NULL ) {
-    int e_tab[12];
-    for( int k=0; k<12; k++ )
-      e_tab[k] = get_dilution_value_PRECISION( k, l->depth );
+    int nvar = l->num_lattice_site_var;
+    int e_tab[nvar];
+    dilution_table_PRECISION( e_tab, nvar, dil_level );
+
+    for ( int i=start; i<end; i++ )
+      phi[i] = (PRECISION)( e_tab[i%nvar] );
+
+  } else {
+    error0("Error in \"vector_PRECISION_dilution\": pointer is null\n");
+  }
+
+  if(thread == 0 && start != end)
+    PROF_PRECISION_STOP( _SET, 1 );
+}
+
+// Multiplier-based probing vector: indicator of color g.coloring_count+1 on the
+// grid of level l, times the dilution pattern of level dil_level.
+void vector_PRECISION_probing( vector_PRECISION phi, int start, int end, level_struct *l, int dil_level ) {
+  int thread = omp_get_thread_num();
+  if(thread == 0 && start != end)
+    PROF_PRECISION_START( _SET );
+
+  if ( phi != NULL ) {
+    int nvar = l->num_lattice_site_var;
+    int e_tab[nvar];
+    dilution_table_PRECISION( e_tab, nvar, dil_level );
 
     int  mycol = g.coloring_count + 1;          // colors are stored 1-based
     int *cols  = g.local_colors[l->depth];
 
     for ( int i=start; i<end; i++ )
-      phi[i] = (PRECISION)( (cols[i/12] == mycol) ? e_tab[i%12] : 0 );
+      phi[i] = (PRECISION)( (cols[i/nvar] == mycol) ? e_tab[i%nvar] : 0 );
 
   } else {
     error0("Error in \"vector_PRECISION_probing\": pointer is null\n");
@@ -126,15 +162,19 @@ void vector_PRECISION_probing( vector_PRECISION phi, int start, int end, level_s
     PROF_PRECISION_STOP( _SET, 1 );
 }
 
-void vector_PRECISION_hadamard( vector_PRECISION phi, int start, int end, level_struct *l ) {
+// Hierarchical-probing (Hadamard) vector number g.coloring_count, times the
+// dilution pattern of level dil_level. Only available on the finest grid.
+void vector_PRECISION_hadamard( vector_PRECISION phi, int start, int end, level_struct *l, int dil_level ) {
   int thread = omp_get_thread_num();
   if(thread == 0 && start != end)
     PROF_PRECISION_START( _SET );
 
+  if( l->depth != 0 )
+    error0("hierarchical probing is only implemented on the finest grid (requested at depth %d)\n", l->depth);
+
   if ( phi != NULL ) {
     int e_tab[12];
-    for( int k=0; k<12; k++ )
-      e_tab[k] = get_dilution_value_PRECISION( k, l->depth );
+    dilution_table_PRECISION( e_tab, 12, dil_level );
 
     const int       tb      = (g.probing_dimension == 4) ? g_hp_total_bits_4d : g_hp_total_bits_3d;
     const long long m       = (long long)g.coloring_count;
