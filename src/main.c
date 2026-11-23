@@ -136,8 +136,14 @@ int main( int argc, char **argv ) {
     // pre-setting some values for the Hutchinson struct
     struct Thread *threadingx = &threading;  
     complex_double trace;
-    int rnd_seed = 1234;
-    srand( time( 0 ) + rnd_seed*g.my_rank );
+    // deterministic and collision-free seed: distinct for every (rank, seed offset) pair.
+    // Use a different "trace seed offset" in each job whose samples will be pooled.
+    {
+      unsigned int trace_seed = 1u + (unsigned int)g.my_rank
+                              + (unsigned int)g.num_processes * (unsigned int)g.trace_seed_offset;
+      srand( trace_seed );
+      if(g.my_rank==0 && omp_get_thread_num()==0) printf("\nTrace RNG: seed offset = %d (rank 0 seed = %u)\n", g.trace_seed_offset, trace_seed);
+    }
     
     {  
       hutchinson_diver_double_init( &l, &threading );  

@@ -153,6 +153,7 @@ typedef struct global_struct
     int **global_k;
 
     int gamma_idx;
+    int trace_seed_offset; // offset of the trace RNG seed: use a different value for each job to be pooled
 
     double *variances; //variance of the estimator at every level
     double **var_pc; //variance per color
