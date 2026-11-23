@@ -102,15 +102,35 @@ int get_dilution_value_PRECISION(int idx, int level){
     return val;
 }
 
-// Fill e_tab[0..nvar-1] with the dilution pattern of the current g.dilution_count,
-// using the dilution scheme of level dil_level. On coarse grids (nvar != 12) only
-// "no dilution" is implemented so far.
-static void dilution_table_PRECISION( int *e_tab, int nvar, int dil_level ) {
-  if( nvar != 12 && g.dilution[dil_level] != 1 )
-    error0("dilution %d requested on a grid with %d dof per site: only dilution 1 is implemented on coarse grids\n",
-           g.dilution[dil_level], nvar);
-  for( int k=0; k<nvar; k++ )
-    e_tab[k] = (nvar == 12) ? get_dilution_value_PRECISION( k, dil_level ) : 1;
+// Coarse-grid dilution: a coarse site carries nvar = 2*n_tv dof, chirality outer
+// and test vector inner (index = chi*n_tv + v, see restrict_PRECISION).
+// D = 1: none; D = 2*m with m | n_tv: chirality x m contiguous blocks of test
+// vectors (D = 2 is pure chirality, D = nvar is full dof dilution).
+// Piece g.dilution_count (1-based) is kept.
+static int coarse_dilution_value_PRECISION( int k, int nvar, int D ) {
+  if( D == 1 ) return 1;
+  int n_tv = nvar/2, m = D/2, block = n_tv/m;
+  int piece = (k/n_tv)*m + (k%n_tv)/block;
+  return ( piece == g.dilution_count-1 ) ? 1 : 0;
+}
+
+// Fill e_tab[0..nvar-1] with the dilution pattern of the current g.dilution_count
+// for a vector on level l, using the dilution scheme of level dil_level:
+// spin/color schemes on the finest grid, chirality/test-vector schemes on coarse grids.
+static void dilution_table_PRECISION( int *e_tab, level_struct *l, int dil_level ) {
+  int nvar = l->num_lattice_site_var, D = g.dilution[dil_level];
+  if( l->depth == 0 ){
+    if( D != 1 && D != 2 && D != 3 && D != 4 && D != 12 )
+      error0("dilution %d (level %d) is not a finest-grid dilution (1, 2, 3, 4, 12)\n", D, dil_level);
+    for( int k=0; k<nvar; k++ )
+      e_tab[k] = get_dilution_value_PRECISION( k, dil_level );
+  } else {
+    if( D != 1 && ( D%2 != 0 || (nvar/2)%(D/2) != 0 ) )
+      error0("dilution %d (level %d) on a grid with %d dof per site: use 1 or 2*m with m dividing %d\n",
+             D, dil_level, nvar, nvar/2);
+    for( int k=0; k<nvar; k++ )
+      e_tab[k] = coarse_dilution_value_PRECISION( k, nvar, D );
+  }
 }
 
 // Plain (unprobed) diluted vector: the dilution pattern on every site.
@@ -123,7 +143,7 @@ void vector_PRECISION_dilution( vector_PRECISION phi, int start, int end, level_
   if ( phi != NULL ) {
     int nvar = l->num_lattice_site_var;
     int e_tab[nvar];
-    dilution_table_PRECISION( e_tab, nvar, dil_level );
+    dilution_table_PRECISION( e_tab, l, dil_level );
 
     for ( int i=start; i<end; i++ )
       phi[i] = (PRECISION)( e_tab[i%nvar] );
@@ -146,7 +166,7 @@ void vector_PRECISION_probing( vector_PRECISION phi, int start, int end, level_s
   if ( phi != NULL ) {
     int nvar = l->num_lattice_site_var;
     int e_tab[nvar];
-    dilution_table_PRECISION( e_tab, nvar, dil_level );
+    dilution_table_PRECISION( e_tab, l, dil_level );
 
     int  mycol = g.coloring_count + 1;          // colors are stored 1-based
     int *cols  = g.local_colors[l->depth];
@@ -174,7 +194,7 @@ void vector_PRECISION_hadamard( vector_PRECISION phi, int start, int end, level_
 
   if ( phi != NULL ) {
     int e_tab[12];
-    dilution_table_PRECISION( e_tab, 12, dil_level );
+    dilution_table_PRECISION( e_tab, l, dil_level );
 
     const int       tb      = (g.probing_dimension == 4) ? g_hp_total_bits_4d : g_hp_total_bits_3d;
     const long long m       = (long long)g.coloring_count;

@@ -295,27 +295,34 @@ void get_sigma( int level ){
              level, mu, g.sigma[level][mu], n[mu], g.num_colors[level]);
 }
 
+// Finest grid: 1 none, 2 partial spin, 3 color, 4 spin, 12 spin-color.
+// Coarse grids (2*n_tv dof per site, chirality outer, test vector inner):
+// 1 none, 2 chirality, 2*m (m | n_tv) chirality x m blocks of test vectors.
 void dilution_check(int level){
+  int D = g.dilution[level];
 
-  if(g.dilution[level] != 1 && g.dilution[level] != 2 && g.dilution[level] != 3 && g.dilution[level] != 4 && g.dilution[level] != 12){
-    printf("\nError: choose a correct dilution value (1, 2, 3, 4, 12) at level %d", level);
-    exit(1);
+  if( level == 0 ){
+    if( D != 1 && D != 2 && D != 3 && D != 4 && D != 12 )
+      error0("choose a correct dilution value (1, 2, 3, 4, 12) at level %d\n", level);
+    if(g.my_rank==0){
+      if(D == 1)  printf("\nNo dilution at level %d   ", level);
+      if(D == 2)  printf("\nPartial spin dilution at level %d   ", level);
+      if(D == 3)  printf("\nColor dilution at level %d   ", level);
+      if(D == 4)  printf("\nComplete spin dilution at level %d   ", level);
+      if(D == 12) printf("\nSpin-Color dilution at level %d   ", level);
+    }
+  } else {
+    int n_tv = g.num_eig_vect[level-1];
+    if( D != 1 && ( D < 2 || D%2 != 0 || n_tv%(D/2) != 0 ) )
+      error0("choose a correct dilution value at level %d: 1 or 2*m with m dividing %d (test vectors)\n",
+             level, n_tv);
+    if(g.my_rank==0){
+      if(D == 1)          printf("\nNo dilution at level %d   ", level);
+      else if(D == 2)     printf("\nChirality dilution at level %d   ", level);
+      else if(D == 2*n_tv) printf("\nFull (chirality x test vector) dilution at level %d   ", level);
+      else                printf("\nChirality x %d test-vector blocks dilution at level %d   ", D/2, level);
+    }
   }
-
-  if(g.dilution[level] == 1)
-    if(g.my_rank==0) printf("\nNo dilution at level %d   ", level);
-
-  if(g.dilution[level] == 2)
-    if(g.my_rank==0) printf("\nPartial spin dilution at level %d   ", level);
-
-  if(g.dilution[level] == 3)
-    if(g.my_rank==0) printf("\nColor dilution at level %d   ", level);
-
-  if(g.dilution[level] == 4)
-    if(g.my_rank==0) printf("\nComplete spin dilution at level %d   ", level);
-
-  if(g.dilution[level] == 12)
-    if(g.my_rank==0) printf("\nSpin-Color dilution at level %d   ", level);
 }
 
 void coloring_scheme( level_struct *l ){
