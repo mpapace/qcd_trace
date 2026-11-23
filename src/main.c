@@ -158,7 +158,7 @@ int main( int argc, char **argv ) {
 
       
       if(coloring_flag == 0){
-        graph_coloring();
+        graph_coloring( &l );
         if(g.probing == 2) hp_loc_setup( &l );   // needs g.global_k, set by graph_coloring
         coloring_flag = 1;
       }

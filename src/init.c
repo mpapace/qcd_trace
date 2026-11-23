@@ -551,7 +551,7 @@ void method_finalize( level_struct *l ) {
   if(g.probing == 2) hp_loc_free( l );
   if(g.probing == 1){
     for(int level = 0; level < g.num_levels; level++){
-        // must match the allocation size in setup_local_colors_direct()
+        // must match the allocation size in setup_local_colors()
         FREE(g.local_colors[level], int, local_colors_size( level ));
     }
     free(g.local_colors);

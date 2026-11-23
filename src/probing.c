@@ -138,49 +138,93 @@ int local_colors_size( int level ){
          * g.local_lattice[level][2] * g.local_lattice[level][3];
 }
 
-void setup_local_colors_direct(){
-    // calloc: entries must start as NULL for the MALLOC macro
-    g.local_colors = (int**)calloc(g.num_levels, sizeof(int*));
+// Vector site index of every local site of level lv, indexed by the local
+// lexicographic position (t,z,y,x), X fastest. Same orderings as
+// gathering_PRECISION_setup (field2):
+//   depth 0            : lexicographic
+//   intermediate levels: aggregate -> Schwarz block -> lexicographic in the block
+//   coarsest level     : even sites then odd sites if odd_even, else lexicographic
+static void level_site_order( level_struct *lv, int *lex_to_vec ){
+  int *ll = lv->local_lattice, nsites = lv->num_inner_lattice_sites;
+  int t, z, y, x, i = 0;
 
-    for(int level = 0; level < g.num_levels; level++){
-        // local lattice of this level (not global/num_processes: coarse levels may merge processes)
-        int Nt_loc = g.local_lattice[level][0];
-        int Nz_loc = g.local_lattice[level][1];
-        int Ny_loc = g.local_lattice[level][2];
-        int Nx_loc = g.local_lattice[level][3];
-        const int local_size = local_colors_size( level );
-
-        MALLOC(g.local_colors[level], int, local_size);
-
-        // global coordinate offsets of this rank's block (only used at depth 0,
-        // where every process owns exactly one block of the process grid)
-        int t0 = g.my_coords[0] * Nt_loc;
-        int z0 = g.my_coords[1] * Nz_loc;
-        int y0 = g.my_coords[2] * Ny_loc;
-        int x0 = g.my_coords[3] * Nx_loc;
-
-        int idx = 0;
-        for (int lt = 0; lt < Nt_loc; lt++)
-            for (int lz = 0; lz < Nz_loc; lz++)
-                for (int ly = 0; ly < Ny_loc; ly++)
-                    for (int lx = 0; lx < Nx_loc; lx++, idx++)
-                    {
-                        if( level == 0 ){
-                            int t = t0 + lt;
-                            int z = z0 + lz;
-                            int y = y0 + ly;
-                            int x = x0 + lx;
-                            int col = ( g.sigma[level][0]*t + g.sigma[level][1]*z
-                                      + g.sigma[level][2]*y + g.sigma[level][3]*x ) % g.num_colors[level];
-                            // manual two-form override for d=7 would replace the line above:
-                            //   96^3: int col = 3*(( z + 2*y + 11*x ) % 48) + ( y % 3 );
-                            //   64^3: int col = 2*(( z + 3*y + 13*x ) % 64) + (( y + x ) % 2);
-                            g.local_colors[level][idx] = col + 1;   // 1-based
-                        } else {
-                            g.local_colors[level][idx] = 1;         // coarse levels: single color
-                        }
-                    }
+  if( lv->depth > 0 && lv->level > 0 ){
+    int agg_split[4], block_split[4], block_size[4];
+    for( int mu=0; mu<4; mu++ ){
+      agg_split[mu]   = ll[mu]/lv->coarsening[mu];
+      block_split[mu] = lv->coarsening[mu]/lv->block_lattice[mu];
+      block_size[mu]  = lv->block_lattice[mu];
     }
+    for( int d0=0; d0<agg_split[T]; d0++ )
+      for( int c0=0; c0<agg_split[Z]; c0++ )
+        for( int b0=0; b0<agg_split[Y]; b0++ )
+          for( int a0=0; a0<agg_split[X]; a0++ )
+            for( int d1=d0*block_split[T]; d1<(d0+1)*block_split[T]; d1++ )
+              for( int c1=c0*block_split[Z]; c1<(c0+1)*block_split[Z]; c1++ )
+                for( int b1=b0*block_split[Y]; b1<(b0+1)*block_split[Y]; b1++ )
+                  for( int a1=a0*block_split[X]; a1<(a0+1)*block_split[X]; a1++ )
+                    for( t=d1*block_size[T]; t<(d1+1)*block_size[T]; t++ )
+                      for( z=c1*block_size[Z]; z<(c1+1)*block_size[Z]; z++ )
+                        for( y=b1*block_size[Y]; y<(b1+1)*block_size[Y]; y++ )
+                          for( x=a1*block_size[X]; x<(a1+1)*block_size[X]; x++ )
+                            lex_to_vec[ lex_index( t, z, y, x, ll ) ] = i++;
+  } else if( lv->depth > 0 && g.odd_even ){
+    int oe_offset = 0;
+    for( int mu=0; mu<4; mu++ )
+      oe_offset += ( ll[mu]*(g.my_coords[mu]/lv->comm_offset[mu]) )%2;
+    oe_offset = oe_offset%2;
+    for( int parity=0; parity<2; parity++ )
+      for( t=0; t<ll[T]; t++ )
+        for( z=0; z<ll[Z]; z++ )
+          for( y=0; y<ll[Y]; y++ )
+            for( x=0; x<ll[X]; x++ )
+              if( (t+z+y+x+oe_offset)%2 == parity )
+                lex_to_vec[ lex_index( t, z, y, x, ll ) ] = i++;
+  } else {
+    for( i=0; i<nsites; i++ ) lex_to_vec[i] = i;
+    i = nsites;
+  }
+
+  if( i != nsites )
+    error0("level_site_order: %d of %d sites ordered at depth %d\n", i, nsites, lv->depth);
+}
+
+// g.local_colors[depth][vector site index] = 1-based color of that site, on the
+// grid of every level, in the site order of that level's vectors.
+// Global coordinates of a local site: (my_coords/comm_offset)*local_lattice + local
+// (coarse levels merge processes; on idle processes the table is unused).
+void setup_local_colors( level_struct *l ){
+  // calloc: entries must start as NULL for the MALLOC macro
+  g.local_colors = (int**)calloc(g.num_levels, sizeof(int*));
+
+  for( level_struct *lv = l; lv != NULL; lv = (lv->level > 0) ? lv->next_level : NULL ){
+    int depth = lv->depth, *ll = lv->local_lattice, nsites = lv->num_inner_lattice_sites;
+    int *sg = g.sigma[depth], nc = g.num_colors[depth], off[4], *lex_to_vec = NULL;
+
+    if( nsites != local_colors_size( depth ) )
+      error0("setup_local_colors: site count mismatch at depth %d\n", depth);
+
+    MALLOC( g.local_colors[depth], int, nsites );
+    MALLOC( lex_to_vec, int, nsites );
+    level_site_order( lv, lex_to_vec );
+
+    for( int mu=0; mu<4; mu++ )
+      off[mu] = ( g.my_coords[mu]/lv->comm_offset[mu] )*ll[mu];
+
+    for( int t=0; t<ll[T]; t++ )
+      for( int z=0; z<ll[Z]; z++ )
+        for( int y=0; y<ll[Y]; y++ )
+          for( int x=0; x<ll[X]; x++ ){
+            int col = ( sg[T]*(off[T]+t) + sg[Z]*(off[Z]+z)
+                      + sg[Y]*(off[Y]+y) + sg[X]*(off[X]+x) ) % nc;
+            // manual two-form override for d=7 would replace the line above:
+            //   96^3: int col = 3*(( z + 2*y + 11*x ) % 48) + ( y % 3 );
+            //   64^3: int col = 2*(( z + 3*y + 13*x ) % 64) + (( y + x ) % 2);
+            g.local_colors[depth][ lex_to_vec[ lex_index( t, z, y, x, ll ) ] ] = col + 1;   // 1-based
+          }
+
+    FREE( lex_to_vec, int, nsites );
+  }
 }
 
 // Multiplier-based coloring tables, selected by the geometry of each level.
@@ -274,15 +318,10 @@ void dilution_check(int level){
     if(g.my_rank==0) printf("\nSpin-Color dilution at level %d   ", level);
 }
 
-void coloring_scheme(){
+void coloring_scheme( level_struct *l ){
   // sigma / num_colors selection: pure table lookup on ALL ranks, one coloring per level
   for( int level = 0; level < g.num_levels; level++ )
     get_sigma( level );
-
-  // coarse levels are not probed yet: their probing vectors need the coarse site
-  // ordering, which comes with the next step
-  for( int level = 1; level < g.num_levels; level++ )
-    g.num_colors[level] = 1;
 
   if(g.my_rank==0){
     printf("\nProbing = %d - Classical probing\n", g.probing);
@@ -296,7 +335,7 @@ void coloring_scheme(){
   for( int level = 0; level < g.num_levels; level++ )
     dilution_check(level);
 
-  setup_local_colors_direct();
+  setup_local_colors( l );
 
   if(g.my_rank==0)
     for( int level = 0; level < g.num_levels; level++ )
@@ -325,10 +364,10 @@ int* find_indices(int *array, int size, int value, int *count){
     return indices;
 }
 
-void graph_coloring(){
+void graph_coloring( level_struct *l ){
 
   get_coloring_dimension();
-  if(g.probing == 1) coloring_scheme();
+  if(g.probing == 1) coloring_scheme( l );
 
  if(g.probing == 2){
    if(g.my_rank==0) printf("\nProbing = %d - Hierarchical probing\n", g.probing);
