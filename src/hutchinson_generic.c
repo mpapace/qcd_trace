@@ -603,6 +603,69 @@ void apply_R_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct*
 
 
 
+// out = Gamma in on the finest grid, Gamma chosen by g.gamma_idx
+// (0..3: gamma_mu, 5: gamma_5, anything else: identity). out != in.
+void apply_gamma_idx_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct *l, struct Thread *threading ){
+  if(g.gamma_idx == 5)      gamma5_PRECISION( out, in, l, threading );
+  else if(g.gamma_idx == 0) gamma0_PRECISION( out, in, l, threading );
+  else if(g.gamma_idx == 1) gamma1_PRECISION( out, in, l, threading );
+  else if(g.gamma_idx == 2) gamma2_PRECISION( out, in, l, threading );
+  else if(g.gamma_idx == 3) gamma3_PRECISION( out, in, l, threading );
+  else {
+    int start, end;
+    compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
+    vector_PRECISION_copy( out, in, start, end, l );
+  }
+  SYNC_CORES(threading)
+}
+
+// out = M_l in, with M_l = R_hat_l Gamma P_t P_hat_l on the grid of level l:
+// prolongate in to the finest grid, keep the finest timeslice g.time_slice,
+// apply Gamma (g.gamma_idx), restrict back to level l. No solves.
+// in and out live on level l; uses h->mlmc_b1 and h->mlmc_b2 as buffers
+// (out must be neither of them).
+void apply_M_timeslice_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct *l,
+                                  hutchinson_PRECISION_struct* h, struct Thread *threading ){
+  level_struct *finest_l = h->finest_level;
+  level_struct *levels[g.num_levels];
+  int nlev = 0, l_index = -1, start, end;
+
+  for( level_struct *lt = finest_l; lt != NULL; lt = lt->next_level ){
+    if( lt == l ) l_index = nlev;
+    levels[nlev++] = lt;
+  }
+  if( l_index < 0 ) error0("apply_M_timeslice: level not found\n");
+
+  // prolongate from level l to the finest grid
+  compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
+  vector_PRECISION_copy( h->mlmc_b1, in, start, end, l );
+  SYNC_CORES(threading)
+  for( int i = l_index; i > 0; i-- ){
+    level_struct *fine = levels[i-1];
+    apply_P_PRECISION( h->mlmc_b2, h->mlmc_b1, fine, threading );
+    compute_core_start_end( 0, fine->inner_vector_size, &start, &end, fine, threading );
+    vector_PRECISION_copy( h->mlmc_b1, h->mlmc_b2, start, end, fine );
+    SYNC_CORES(threading)
+  }
+
+  // P_t and Gamma on the finest grid (both site-local, so they commute)
+  vector_PRECISION_timeslice( h->mlmc_b1, g.time_slice, finest_l, threading );
+  apply_gamma_idx_PRECISION( h->mlmc_b2, h->mlmc_b1, finest_l, threading );
+
+  // restrict back to level l
+  for( int i = 0; i < l_index; i++ ){
+    level_struct *fine = levels[i], *coarse = levels[i+1];
+    apply_R_PRECISION( h->mlmc_b1, h->mlmc_b2, fine, threading );
+    compute_core_start_end( 0, coarse->inner_vector_size, &start, &end, coarse, threading );
+    vector_PRECISION_copy( h->mlmc_b2, h->mlmc_b1, start, end, coarse );
+    SYNC_CORES(threading)
+  }
+
+  compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
+  vector_PRECISION_copy( out, h->mlmc_b2, start, end, l );
+  SYNC_CORES(threading)
+}
+
 complex_PRECISION g5_3D_hutchinson_mlmc_difference_PRECISION( int type_appl, level_struct *l, hutchinson_PRECISION_struct* h, struct Thread *threading ){
   // store from fine to coarsest lvl in an array
   level_struct *finest_l = h->finest_level;

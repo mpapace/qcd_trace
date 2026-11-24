@@ -5,6 +5,8 @@
 
   void apply_P_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading );
   void apply_R_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading );
+  void apply_gamma_idx_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct *l, struct Thread *threading );
+  void apply_M_timeslice_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct *l, hutchinson_PRECISION_struct* h, struct Thread *threading );
   int apply_solver_PRECISION( level_struct* l, struct Thread *threading );
    
   gmres_PRECISION_struct* get_p_struct_PRECISION( level_struct* l );
