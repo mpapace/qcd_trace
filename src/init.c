@@ -558,6 +558,13 @@ void method_finalize( level_struct *l ) {
   }
 
 
+  if(g.site_t != NULL){
+    for(int level = 0; level < g.num_levels; level++)
+      FREE(g.site_t[level], int, local_colors_size( level ));
+    free(g.site_t);
+    g.site_t = NULL;
+  }
+
   if(g.my_rank==0){
     for(int level = 0; level < g.num_levels; level++)
       FREE(g.var_pc[level], double*, g.trace_max_iters[level]);

@@ -324,6 +324,18 @@ void vector_PRECISION_ghg(vector_PRECISION phi,
     PROF_PRECISION_STOP( _SET, 1 );
 }
 
+// Zero phi outside timeslice t of the grid of level l (t in that level's global
+// coordinates). Valid on every level and site ordering (uses g.site_t).
+void vector_PRECISION_timeslice( vector_PRECISION phi, int t, level_struct *l, struct Thread *threading ) {
+  START_MASTER(threading)
+  int nvar = l->num_lattice_site_var, *st = g.site_t[l->depth];
+  for( int s=0; s<l->num_inner_lattice_sites; s++ )
+    if( st[s] != t )
+      for( int k=0; k<nvar; k++ ) phi[s*nvar+k] = 0.0;
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
+}
+
 void vector_PRECISION_define_spin_color( vector_PRECISION phi, int start, int end, level_struct *l, struct Thread *threading) {
   
   int thread = omp_get_thread_num();

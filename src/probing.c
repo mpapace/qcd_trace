@@ -144,7 +144,7 @@ int local_colors_size( int level ){
 //   depth 0            : lexicographic
 //   intermediate levels: aggregate -> Schwarz block -> lexicographic in the block
 //   coarsest level     : even sites then odd sites if odd_even, else lexicographic
-static void level_site_order( level_struct *lv, int *lex_to_vec ){
+void level_site_order( level_struct *lv, int *lex_to_vec ){
   int *ll = lv->local_lattice, nsites = lv->num_inner_lattice_sites;
   int t, z, y, x, i = 0;
 
@@ -187,6 +187,37 @@ static void level_site_order( level_struct *lv, int *lex_to_vec ){
 
   if( i != nsites )
     error0("level_site_order: %d of %d sites ordered at depth %d\n", i, nsites, lv->depth);
+}
+
+// g.site_t[depth][vector site index] = global time coordinate of that site on the
+// grid of level depth, in the site order of that level's vectors (all levels).
+void setup_site_time( level_struct *l ){
+  g.site_t = (int**)calloc(g.num_levels, sizeof(int*));
+
+  for( level_struct *lv = l; lv != NULL; lv = (lv->level > 0) ? lv->next_level : NULL ){
+    int depth = lv->depth, *ll = lv->local_lattice, nsites = lv->num_inner_lattice_sites;
+    int t0 = ( g.my_coords[T]/lv->comm_offset[T] )*ll[T], *lex_to_vec = NULL;
+
+    if( nsites != local_colors_size( depth ) )
+      error0("setup_site_time: site count mismatch at depth %d\n", depth);
+
+    MALLOC( g.site_t[depth], int, nsites );
+    MALLOC( lex_to_vec, int, nsites );
+    level_site_order( lv, lex_to_vec );
+
+    for( int t=0; t<ll[T]; t++ )
+      for( int z=0; z<ll[Z]; z++ )
+        for( int y=0; y<ll[Y]; y++ )
+          for( int x=0; x<ll[X]; x++ )
+            g.site_t[depth][ lex_to_vec[ lex_index( t, z, y, x, ll ) ] ] = t0 + t;
+
+    FREE( lex_to_vec, int, nsites );
+  }
+}
+
+// Timeslice of the grid of level depth that contains the finest timeslice g.time_slice.
+int level_time_slice( int depth ){
+  return g.time_slice / ( g.global_lattice[0][T]/g.global_lattice[depth][T] );
 }
 
 // g.local_colors[depth][vector site index] = 1-based color of that site, on the

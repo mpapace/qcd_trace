@@ -142,6 +142,7 @@ typedef struct global_struct
     int *anisotropic;
 
     int **local_colors; //colors of every MPI process
+    int **site_t;       //global time coordinate of every local site, per level, in vector order
     int *num_colors; //number of colors at every level
     int coloring_count;
     

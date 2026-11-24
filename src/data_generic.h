@@ -27,6 +27,7 @@
 
   void vector_PRECISION_define_random_rademacher( vector_PRECISION phi, int start, int end, level_struct *l ); 
   void vector_PRECISION_ghg(vector_PRECISION phi, int start, int end, level_struct *l);
+  void vector_PRECISION_timeslice( vector_PRECISION phi, int t, level_struct *l, struct Thread *threading );
   void print_rademacher_PRECISION( vector_PRECISION phi, level_struct *l);
   
   void vector_PRECISION_hadamard( vector_PRECISION phi, int start, int end, level_struct *l, int dil_level );
