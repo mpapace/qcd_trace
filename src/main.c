@@ -288,10 +288,10 @@ int main( int argc, char **argv ) {
         if(g.my_rank==0) printf("\n\nUsing MLMC for computing the trace\n");
         END_MASTER(threadingx)
 
-        trace = g5_3D_mlmc_hutchinson_driver_double(&l, &threading);
+        trace = gamma_3D_mlmc_hutchinson_driver_double(&l, &threading);
 
         START_MASTER(threadingx)
-        if(g.my_rank==0) printf("\nResulting trace from MLMC  = %f+i%f\n", CSPLIT(trace)); 
+        if(g.my_rank==0) printf("\nResulting trace from Gamma_%d MLMC  = %f+i%f\n", g.gamma_idx, CSPLIT(trace)); 
         if(g.my_rank == 0){
           for(int level = 0; level < g.num_levels; level++){
             printf("Resulting variance from (traditional) MGMLMC at level %d = %f\n", level + 1, g.variances[level]);
