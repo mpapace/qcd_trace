@@ -3,6 +3,7 @@
 
   struct Thread;
 
+  complex_PRECISION trace_inner_product_PRECISION( vector_PRECISION a, vector_PRECISION b, int start, int end, level_struct *l, struct Thread *threading );
   void apply_P_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading );
   void apply_R_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading );
   void apply_gamma_idx_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct *l, struct Thread *threading );

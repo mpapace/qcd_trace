@@ -137,9 +137,35 @@ gmres_PRECISION_struct* get_p_struct_PRECISION( level_struct* l ){
 }
 
 
+// Inner product on the grid of level l for the trace estimators. On coarse grids,
+// processes can be merged: idle processes take no part in that level's reduction
+// and receive the result from rank 0 (active on every level), so that every rank
+// accumulates the same sample.
+complex_PRECISION trace_inner_product_PRECISION( vector_PRECISION a, vector_PRECISION b, int start, int end,
+                                                 level_struct *l, struct Thread *threading ){
+  static complex_PRECISION shared;
+  complex_PRECISION aux = 0;
+
+  if( l->depth == 0 || g.num_processes == 1 )
+    return global_inner_product_PRECISION( a, b, start, end, l, threading );
+
+  if( !l->idle ) aux = global_inner_product_PRECISION( a, b, start, end, l, threading );
+  START_MASTER(threading)
+  if( g.my_rank == 0 && l->idle ) error0("trace_inner_product: rank 0 idle at depth %d\n", l->depth);
+  shared = aux;
+  MPI_Bcast( &shared, 1, MPI_COMPLEX_PRECISION, 0, g.comm_cart );
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
+  aux = shared;
+  SYNC_CORES(threading)
+  return aux;
+}
+
 int apply_solver_PRECISION( level_struct* l, struct Thread *threading ){
   int nr_iters = 0;
   double buff1=0, buff2=0;
+
+  if( l->idle ) return 0;   // processes merged away on this level take no part in its solves
 
   gmres_PRECISION_struct* p = get_p_struct_PRECISION( l );
 
@@ -482,7 +508,7 @@ complex_PRECISION g5_3D_connected_hutchinson_plain_PRECISION( int type_appl, lev
     //if(g.trace_deflation_type[l->depth] != 0){
     //  hutchinson_deflate_vector_PRECISION(p->x, l, threading);
     //}
-      aux = global_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
     } else {
       //vector_PRECISION_copy(l->powerit_PRECISION.vecs_buff1, p->x, start, end, l);
       //aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], l->powerit_PRECISION.vecs_buff1, p->v_start, p->v_end, l, threading );
@@ -537,7 +563,7 @@ complex_PRECISION gamma_3D_hutchinson_plain_PRECISION( int type_appl, level_stru
     //if(g.trace_deflation_type[l->depth] != 0){
     //  hutchinson_deflate_vector_PRECISION(p->x, l, threading);
     //}
-      aux = global_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
     } else {
       //vector_PRECISION_copy(l->powerit_PRECISION.vecs_buff1, p->x, start, end, l);
       //aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], l->powerit_PRECISION.vecs_buff1, p->v_start, p->v_end, l, threading );
@@ -550,6 +576,7 @@ complex_PRECISION gamma_3D_hutchinson_plain_PRECISION( int type_appl, level_stru
 
 // apply the interpolation
 void apply_P_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading ){
+  if( l->idle ) return;   // l is the fine level; idle processes do not take part
   if( l->depth==0 ){
     interpolate3_PRECISION( l->sbuf_PRECISION[0], in, l, threading );
     trans_back_PRECISION( (vector_double)out, l->sbuf_PRECISION[0], l->s_PRECISION.op.translation_table, l, threading );
@@ -562,6 +589,7 @@ void apply_P_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct*
 
 // apply the restriction
 void apply_R_PRECISION( vector_PRECISION out, vector_PRECISION in, level_struct* l, struct Thread *threading ){
+  if( l->idle ) return;   // l is the fine level; idle processes do not take part
   if( l->depth==0 ){
     trans_PRECISION( l->sbuf_PRECISION[0], (vector_double)in, l->s_PRECISION.op.translation_table, l, threading );
     restrict_PRECISION( out, l->sbuf_PRECISION[0], l, threading );
@@ -695,7 +723,7 @@ complex_PRECISION gamma_3D_mlmc_difference_PRECISION( int type_appl, level_struc
   // v^dagger (x1 - x2) on level l
   vector_PRECISION_minus( h->mlmc_b1, h->mlmc_b1, h->mlmc_b2, start, end, l );
   SYNC_CORES(threading)
-  aux = global_inner_product_PRECISION( v, h->mlmc_b1, 0, l->inner_vector_size, l, threading );
+  aux = trace_inner_product_PRECISION( v, h->mlmc_b1, 0, l->inner_vector_size, l, threading );
 
   return aux;
 }
@@ -717,7 +745,7 @@ complex_PRECISION gamma_3D_mlmc_coarsest_PRECISION( int type_appl, level_struct 
   SYNC_CORES(threading)
   apply_solver_PRECISION( l, threading );
 
-  return global_inner_product_PRECISION( v, p->x, 0, l->inner_vector_size, l, threading );
+  return trace_inner_product_PRECISION( v, p->x, 0, l->inner_vector_size, l, threading );
 }
 
 
@@ -1051,7 +1079,7 @@ complex_PRECISION g5_3D_connected_mlmc_difference_PRECISION( int type_appl, leve
       //if(g.trace_deflation_type[l->depth] != 0){
         //hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading);
       //}
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, finest_l->inner_vector_size, finest_l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, finest_l->inner_vector_size, finest_l, threading );
     } else {
       //aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     }
@@ -1500,7 +1528,7 @@ complex_PRECISION g5_3D_connected_split_orthogonal_PRECISION( int type_appl, lev
       //if(g.trace_deflation_type[l->depth] != 0){
         //hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading);
       //}
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, finest_l->inner_vector_size, finest_l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, finest_l->inner_vector_size, finest_l, threading );
     } else {
       //aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     }
@@ -1638,7 +1666,7 @@ complex_PRECISION g5_3D_connected_split_intermediate_PRECISION( int type_appl, l
     { 
       int start, end;
       compute_core_start_end( 0, second_l->inner_vector_size, &start, &end, second_l, threading );
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, start, end, second_l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, start, end, second_l, threading );
     }
   }
   
@@ -1970,7 +1998,7 @@ complex_PRECISION connected_outer_PRECISION( int type_appl, level_struct *l, hut
     //  if(g.trace_deflation_type[l->depth] != 0){
     //    hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading);
     //  }
-    trace = global_inner_product_PRECISION( h->rademacher_vector, op1, 0, finest_l->inner_vector_size, finest_l, threading );
+    trace = trace_inner_product_PRECISION( h->rademacher_vector, op1, 0, finest_l->inner_vector_size, finest_l, threading );
     //  } else {
     //  aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     // }
@@ -2279,7 +2307,7 @@ complex_PRECISION connected_outer_split_PRECISION( int type_appl, level_struct *
     //  if(g.trace_deflation_type[l->depth] != 0){
     //    hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading);
     //  }
-    trace = global_inner_product_PRECISION( h->rademacher_vector, op1, 0, finest_l->inner_vector_size, finest_l, threading );
+    trace = trace_inner_product_PRECISION( h->rademacher_vector, op1, 0, finest_l->inner_vector_size, finest_l, threading );
     //  } else {
     //  aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     // }
@@ -2441,7 +2469,7 @@ complex_PRECISION hutchinson_plain_PRECISION( int type_appl, level_struct *l, hu
    //   if(g.trace_deflation_type[l->depth] != 0){
    //     hutchinson_deflate_vector_PRECISION(p->x, l, threading); 
    //   }
-      aux = global_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
    //} else {
    //   vector_PRECISION_copy(l->powerit_PRECISION.vecs_buff1, p->x, start, end, l);  
    //   aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], l->powerit_PRECISION.vecs_buff1, p->v_start, p->v_end, l, threading );
@@ -2483,7 +2511,7 @@ complex_PRECISION g5_hutchinson_plain_PRECISION( int type_appl, level_struct *l,
     compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
 
     if ( type_appl==-1 ) {
-      aux = global_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, p->x, 0, l->inner_vector_size, l, threading );
     }
 
     return aux;  
@@ -2556,7 +2584,7 @@ complex_PRECISION hutchinson_mlmc_difference_PRECISION( int type_appl, level_str
       //if(g.trace_deflation_type[l->depth] != 0){
       //  hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading); 
       //}
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->inner_vector_size, l, threading );
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->inner_vector_size, l, threading );
     //} else {
     //  aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     }
@@ -2650,7 +2678,7 @@ complex_PRECISION hutchinson_split_orthogonal_PRECISION( int type_appl, level_st
     //  if(g.trace_deflation_type[l->depth] != 0){
     //    hutchinson_deflate_vector_PRECISION(h->mlmc_b1, l, threading); 
     //  }
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->inner_vector_size, l, threading );   
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->inner_vector_size, l, threading );   
     //} else {  
     //  aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l, threading );
     }
@@ -2710,7 +2738,7 @@ complex_PRECISION hutchinson_split_intermediate_PRECISION( int type_appl, level_
     //}
 
     if ( type_appl==-1 ) {
-      aux = global_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->next_level->inner_vector_size, l->next_level, threading );         
+      aux = trace_inner_product_PRECISION( h->rademacher_vector, h->mlmc_b1, 0, l->next_level->inner_vector_size, l->next_level, threading );         
     //} else {
     //  aux = global_inner_product_PRECISION( l->powerit_PRECISION.vecs[type_appl], h->mlmc_b1, p->v_start, p->v_end, l->next_level, threading );         
     }
