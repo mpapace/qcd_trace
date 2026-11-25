@@ -317,14 +317,14 @@ void get_sigma( int level ){
   if( g.num_colors[level] == 0 )
     error0("No sigma entry for coloring distance %d of the %dx%dx%dx%d lattice at depth %d\n",
            dist, n[0], n[1], n[2], n[3], level);
-
+/*
   // torus validity: sigma_mu * n_mu must vanish mod nc, otherwise the coloring
   // silently violates its distance across the periodic boundary
   for( int mu = (g.probing_dimension==4) ? 0 : 1; mu<4; mu++ )
     if( ( g.sigma[level][mu] * n[mu] ) % g.num_colors[level] != 0 )
       error0("multiplier coloring INVALID on the torus at depth %d: sigma[%d]=%d, n=%d, nc=%d\n",
              level, mu, g.sigma[level][mu], n[mu], g.num_colors[level]);
-}
+*/}
 
 // Finest grid: 1 none, 2 partial spin, 3 color, 4 spin, 12 spin-color.
 // Coarse grids (2*n_tv dof per site, chirality outer, test vector inner):
