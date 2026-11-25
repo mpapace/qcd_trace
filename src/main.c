@@ -165,6 +165,9 @@ int main( int argc, char **argv ) {
       }
       
       set_probing_variances_to_zero();   
+      START_MASTER(threadingx)
+      if(g.my_rank==0) trace_report_reset();
+      END_MASTER(threadingx)
       
       if( g.trace_op_type == 12 ){
         START_MASTER(threadingx)
@@ -277,7 +280,6 @@ int main( int argc, char **argv ) {
 
           START_MASTER(threadingx)
           if(g.my_rank==0) printf("\nResulting trace from Gamma_%d plain Hutchinson = %f+i%f\n", g.gamma_idx, CSPLIT(trace)); 
-          if(g.my_rank==0) printf("Resulting variance from plain Hutchinson = %f\n", g.variances[0]);
           fflush(0);
           END_MASTER(threadingx)
       }
@@ -292,14 +294,29 @@ int main( int argc, char **argv ) {
 
         START_MASTER(threadingx)
         if(g.my_rank==0) printf("\nResulting trace from Gamma_%d MLMC  = %f+i%f\n", g.gamma_idx, CSPLIT(trace)); 
-        if(g.my_rank == 0){
-          for(int level = 0; level < g.num_levels; level++){
-            printf("Resulting variance from (traditional) MGMLMC at level %d = %f\n", level + 1, g.variances[level]);
-          }
-        }
         fflush(0);
         END_MASTER(threadingx)
       }
+
+      // summary of every computed piece of the trace, with variances, and the total
+      START_MASTER(threadingx)
+      if(g.my_rank==0){
+        char title[160];
+        const char *name =
+          (g.trace_op_type ==  1) ? "3D MGMLMC" :
+          (g.trace_op_type ==  2) ? "3D plain Hutchinson" :
+          (g.trace_op_type ==  6) ? "connected, plain Hutchinson" :
+          (g.trace_op_type ==  7) ? "connected, MGMLMC" :
+          (g.trace_op_type ==  8) ? "connected, split MGMLMC" :
+          (g.trace_op_type ==  9) ? "4D plain Hutchinson" :
+          (g.trace_op_type == 10) ? "4D MGMLMC" :
+          (g.trace_op_type == 11) ? "4D split MGMLMC" :
+          (g.trace_op_type == 12) ? "4D plain Hutchinson, gamma" : "trace";
+        snprintf( title, 160, "%s (trace op type %d, gamma %d, time slice %d)",
+                  name, g.trace_op_type, g.gamma_idx, g.time_slice );
+        trace_report_print( title );
+      }
+      END_MASTER(threadingx)
 
     }
     

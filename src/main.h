@@ -175,6 +175,7 @@
 #include "hutchinson_float.h"
 #include "hutchinson_double.h"
 #include "probing.h"
+#include "trace_report.h"
 #include "hierarchical.h"
 #include "sigma.h"
 

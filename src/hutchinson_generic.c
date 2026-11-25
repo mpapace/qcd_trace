@@ -11,7 +11,21 @@ struct sample {
   int sample_size;
   // accumulated trace
   complex_PRECISION acc_trace;
+  // number of noise vectors and per-sample (unbiased) variances of the real and
+  // imaginary parts of the samples; negative if undefined (one sample)
+  int n_samples;
+  double var_re, var_im;
 };
+
+// Record one estimate as (part of) a piece of the trace summary, with factor weight.
+static void report_piece_PRECISION( const char *label, struct sample estimate, double weight,
+                                    struct Thread *threading ){
+  START_MASTER(threading)
+  if( g.my_rank == 0 )
+    trace_report_add( label, (complex_double)( estimate.acc_trace / estimate.sample_size ),
+                      estimate.n_samples, estimate.var_re, estimate.var_im, weight );
+  END_MASTER(threading)
+}
 
 
 void hutchinson_diver_PRECISION_init( level_struct *l, struct Thread *threading ) {
@@ -89,6 +103,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
 
   estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
   trace += estimate.acc_trace / estimate.sample_size;
+  report_piece_PRECISION( "plain Hutchinson (level 1)", estimate, 1.0, threading );
 
   return trace;
 }
@@ -395,6 +410,22 @@ struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PR
   // acc_trace sums ALL quadratures: normalize to the per-sample convention above
   estimate.sample_size = hp ? max_iters*num_colors : max_iters;
 
+  // per-sample variances of the real and imaginary parts, for the trace summary
+  estimate.n_samples = max_iters;
+  estimate.var_re = -1.0; estimate.var_im = -1.0;
+  if( max_iters > 1 ){
+    complex_PRECISION mean = 0.0;
+    for( j=0; j<max_iters; j++ ) mean += samples[j];
+    mean = mean/max_iters;
+    estimate.var_re = 0.0; estimate.var_im = 0.0;
+    for( j=0; j<max_iters; j++ ){
+      estimate.var_re += ( creal(samples[j]) - creal(mean) )*( creal(samples[j]) - creal(mean) );
+      estimate.var_im += ( cimag(samples[j]) - cimag(mean) )*( cimag(samples[j]) - cimag(mean) );
+    }
+    estimate.var_re /= ( max_iters - 1 );
+    estimate.var_im /= ( max_iters - 1 );
+  }
+
   free(samples);
   free(traces);
 
@@ -413,6 +444,7 @@ complex_PRECISION gamma_3D_hutchinson_driver_PRECISION( level_struct *l, struct 
 
   estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
   trace += estimate.acc_trace / estimate.sample_size;
+  report_piece_PRECISION( "plain Hutchinson (level 1)", estimate, 1.0, threading );
 
   // if deflation vectors are available
   //if(g.trace_deflation_type[l->depth] != 0){
@@ -436,6 +468,7 @@ complex_PRECISION g5_3D_connected_hutchinson_driver_PRECISION( level_struct *l, 
     // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    report_piece_PRECISION( "connected plain Hutchinson (sum over t')", estimate, 1.0, threading );
     // estimate = hutchinson_blind_PRECISION( lx, h, 0, threading );
     // trace += estimate.acc_trace/estimate.sample_size;
   }
@@ -1211,6 +1244,7 @@ complex_PRECISION gamma_3D_mlmc_hutchinson_driver_PRECISION( level_struct *l, st
     // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "level %d - level %d", i+1, i+2 ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
     
     //if deflation vectors are available
     //if(g.trace_deflation_type[lx->depth] != 0){
@@ -1226,6 +1260,7 @@ complex_PRECISION gamma_3D_mlmc_hutchinson_driver_PRECISION( level_struct *l, st
   // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "coarsest (level %d)", g.num_levels ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
   //if deflation vectors are available
   //if(g.trace_deflation_type[lx->depth] != 0){
   //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -1258,6 +1293,7 @@ complex_PRECISION g5_3D_connected_mlmc_driver_PRECISION( level_struct *l, struct
         // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( h->finest_level, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "G_{%d,%d} (average over t')", h->lx_i->depth, h->lx_j->depth ); report_piece_PRECISION( label, estimate, 1.0/g.global_lattice[0][0], threading ); }
       }
       
       trace = trace/g.time_slice_inner_connected;
@@ -2413,6 +2449,7 @@ complex_PRECISION g5_3D_connected_split_driver_PRECISION( level_struct *l, struc
             // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( h->finest_level, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[96]; snprintf( label, 96, "G_{%d,%d}^{%s-%s} (average over t')", h->lx_i->depth, h->lx_j->depth, lop_string, rop_string ); report_piece_PRECISION( label, estimate, 1.0/g.global_lattice[0][0], threading ); }
            }
 
         trace = trace/g.time_slice_inner_connected;
@@ -2532,6 +2569,7 @@ complex_PRECISION g5_hutchinson_driver_PRECISION( level_struct *l, struct Thread
   // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, 0, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    report_piece_PRECISION( "plain Hutchinson (level 1)", estimate, 1.0, threading );
 
   return trace;
 }
@@ -2611,6 +2649,7 @@ complex_PRECISION mlmc_hutchinson_driver_PRECISION( level_struct *l, struct Thre
     // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "level %d - level %d", i+1, i+2 ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
     // if deflation vectors are available
     //if(g.trace_deflation_type[lx->depth] != 0){
     //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -2624,6 +2663,7 @@ complex_PRECISION mlmc_hutchinson_driver_PRECISION( level_struct *l, struct Thre
   // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "coarsest (level %d)", g.num_levels ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
   // if deflation vectors are available
   //if(g.trace_deflation_type[lx->depth] != 0){
   //  trace += hutchinson_deflated_direct_term_PRECISION( lx, h, threading );
@@ -2764,9 +2804,9 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
     // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 1, i+1, threading );
     trace += estimate.acc_trace / estimate.sample_size;
+    { char label[64]; snprintf( label, 64, "split full rank (level %d)", i+1 ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
     START_MASTER(threading)
     if(g.my_rank == 0){
-      printf("\nTrace at level %d split full rank operator, Variance = %f\n", i+1, g.variances[i]);
       g.variances[i]=0.0;
     }
     END_MASTER(threading)
@@ -2788,10 +2828,7 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
     // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
-    START_MASTER(threading)
-    if(g.my_rank == 0)
-      printf("\nTrace at level %d split orthogonal operator, Variance = %f\n", i+1, g.variances[i]);
-    END_MASTER(threading)
+    { char label[64]; snprintf( label, 64, "split orthogonal (level %d)", i+1 ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
 
     // if deflation vectors are available
     //if( g.trace_deflation_type[lx->depth] != 0 ){
@@ -2808,10 +2845,7 @@ complex_PRECISION split_mlmc_hutchinson_driver_PRECISION( level_struct *l, struc
   // colors and dilution are looped inside the blind routine, with one shared z0 per sample
     estimate = probing_hutchinson_blind_PRECISION( lx, h, 0, i, threading );
     trace += estimate.acc_trace / estimate.sample_size;
-  START_MASTER(threading)
-  if(g.my_rank == 0)
-    printf("\nTrace at level %d coarsest level operator, Variance = %f\n", g.num_levels, g.variances[g.num_levels-1]);
-  END_MASTER(threading)
+    { char label[64]; snprintf( label, 64, "coarsest (level %d)", g.num_levels ); report_piece_PRECISION( label, estimate, 1.0, threading ); }
 
   return trace;
 }
