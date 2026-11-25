@@ -107,11 +107,12 @@ level_struct* trace_vector_level_PRECISION( level_struct *l, hutchinson_PRECISIO
 // coloring (probing 1) or Hadamard vector (probing 2). dil_level selects the dilution scheme.
 void probe_create_PRECISION( level_struct *vl, hutchinson_PRECISION_struct* h, int dil_level, struct Thread *threading ){
   START_MASTER(threading)
-  if( g.probing == 0 )
+  int mode = level_probing( vl->depth );
+  if( mode == 0 )
     vector_PRECISION_dilution( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
-  else if( g.probing == 1 )
+  else if( mode == 1 )
     vector_PRECISION_probing( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
-  else if( g.probing == 2 )
+  else if( mode == 2 )
     vector_PRECISION_hadamard( h->probing_vector, 0, vl->inner_vector_size, vl, dil_level );
   else
     error0("Unknown probing selection %d\n", g.probing);
@@ -293,6 +294,7 @@ struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PR
 
   level_struct *vl = trace_vector_level_PRECISION( l, h, type );
   int num_colors = g.num_colors[vl->depth];
+  int hp         = ( level_probing( vl->depth ) == 2 );   // hierarchical probing on this grid
   int num_dil    = g.dilution[dil_level];
   int max_iters  = h->max_iters[l->depth];
   // index of g.variances where the variance of this estimator is stored
@@ -356,7 +358,7 @@ struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PR
     // 4. sample of this noise vector
     for( j=0; j<num_colors; j++ )
       samples[i] += traces[j];
-    if( g.probing == 2 ) samples[i] = samples[i]/num_colors;
+    if( hp ) samples[i] = samples[i]/num_colors;
 
     START_MASTER(threading)
     if(g.my_rank==0) printf("\n[Trace of it %d = %e %c i%e]\n", i, creal(samples[i]),
@@ -391,7 +393,7 @@ struct sample probing_hutchinson_blind_PRECISION( level_struct *l, hutchinson_PR
   END_MASTER(threading)
 
   // acc_trace sums ALL quadratures: normalize to the per-sample convention above
-  estimate.sample_size = ( g.probing == 2 ) ? max_iters*num_colors : max_iters;
+  estimate.sample_size = hp ? max_iters*num_colors : max_iters;
 
   free(samples);
   free(traces);

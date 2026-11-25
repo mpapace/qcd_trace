@@ -402,6 +402,14 @@ int* find_indices(int *array, int size, int value, int *count){
     return indices;
 }
 
+// Probing method actually used for vectors on the grid of a level:
+// multiplier probing (1) and plain dilution (0) on every level; hierarchical
+// probing (2) only on the finest grid, plain Hutchinson (0) on coarse grids.
+int level_probing( int depth ){
+  if( g.probing == 2 && depth > 0 ) return 0;
+  return g.probing;
+}
+
 void graph_coloring( level_struct *l ){
 
   get_coloring_dimension();
@@ -417,8 +425,11 @@ void graph_coloring( level_struct *l ){
      g.global_k[level][2] = pow2_valuation(g.global_lattice[level][2]);
      g.global_k[level][3] = pow2_valuation(g.global_lattice[level][3]);
      dilution_check(level);
-     g.num_colors[level] = g.n_had[level];
+     // HP on the finest grid only; plain Hutchinson (one "color") on coarse grids
+     g.num_colors[level] = ( level == 0 ) ? g.n_had[level] : 1;
 
+     if(g.my_rank==0 && level > 0)
+       printf("Level %d: plain Hutchinson (hierarchical probing only on the finest grid)\n", level);
      if(g.my_rank==0){
        printf("Number of Hadamard vectors at level %d = %d\n", level, g.num_colors[level]);
        printf("Global k_t at level %d = %d\n", level, g.global_k[level][0]);
